@@ -2,7 +2,7 @@
 (function (root) {
 'use strict';
 
-const COLS = 9, ROWS = 7, CAP = 240, COOL = 4;
+const COLS = 20, ROWS = 20, CAP = 400, COOL = 4;
 const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]; // e ne nw w sw se
 const TYPES = ['Bomb', 'Dash', 'Push', 'Teleport', 'Wall', 'Grab', 'Return'];
 const LETTER = { Bomb: 'B', Dash: 'D', Push: 'P', Teleport: 'T', Wall: 'W', Grab: 'G', Return: 'H' };
@@ -25,14 +25,14 @@ for (let r = 0; r < ROWS; r++) {
   }
 }
 const offset = (c, r) => cells[r * COLS + c];
-const CENTER = offset(4, 3);
+const CENTER = offset(COLS / 2, ROWS / 2);
 const cornerIdx = (q, r) => CORNERS.findIndex(h => h.q === q && h.r === r);
 const isCenter = (q, r) => q === CENTER.q && r === CENTER.r;
 
 // ---------- state ----------
 
 function newState() {
-  const rs = offset(0, 3), cs = offset(COLS - 1, 3);
+  const rs = offset(0, ROWS / 2), cs = offset(COLS - 1, ROWS / 2);
   const s = {
     turn: 'R', n: 0, steps: 0, moving: false, noMove: false, over: null, passes: 0, nid: 1,
     sim: false, hist: {}, flash: null, log: [],
