@@ -5,102 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tag</title>
 <style>
-  :root {
-    --bg: #0e1118; --panel: #151a24; --line: #263045; --text: #dfe5f0; --dim: #8693aa;
-    --C: #ee5a5f; --R: #3cc8e6; --gold: #f2b84b;
-  }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
-  body { font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
-  #app { display: flex; height: 100%; }
-  #stage { position: relative; flex: 1; min-width: 0; background: radial-gradient(circle at 50% 45%, #182034 0%, #0e1118 75%); }
-  #c { position: absolute; inset: 0; display: block; cursor: pointer; }
-  #toast { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); max-width: 90%; padding: 5px 14px; border-radius: 999px; background: rgba(21, 26, 36, .88); border: 1px solid var(--line); color: var(--text); font-size: 13px; pointer-events: none; text-align: center; }
-  #toast.bot::after { content: ""; display: inline-block; width: 1.4em; text-align: left; animation: dots 1.2s steps(4, end) infinite; }
-  @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75%, 100% { content: "..."; } }
-
-  #menu { position: absolute; inset: 0; pointer-events: none; }
-  .mring { position: absolute; border-radius: 50%; border: 1px dashed rgba(223, 229, 240, .25); transform: translate(-50%, -50%) scale(.4); opacity: 0; transition: transform .22s cubic-bezier(.2, 1.3, .4, 1), opacity .2s; }
-  .mring.in { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  .mi { position: absolute; width: 50px; height: 50px; margin: -25px 0 0 -25px; padding: 0; border-radius: 50%; border: 2px solid var(--mc); background: rgba(14, 17, 24, .94); box-shadow: 0 0 14px -2px var(--mc); cursor: pointer; pointer-events: auto; opacity: 0; transform: scale(.3); transition: left .22s cubic-bezier(.2, 1.3, .4, 1), top .22s cubic-bezier(.2, 1.3, .4, 1), transform .15s, opacity .18s; }
-  .mi.in { opacity: 1; transform: scale(1); }
-  .mi.in:hover:not(:disabled) { transform: scale(1.18); }
-  .mi:disabled { opacity: .3; cursor: default; box-shadow: none; }
-  .mi img { width: 100%; height: 100%; display: block; pointer-events: none; }
-
-  #over { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(8, 10, 14, .55); }
-  #over.show { display: flex; animation: fade .35s; }
-  #over .card { text-align: center; padding: 22px 34px; border-radius: 14px; background: var(--panel); border: 2px solid var(--oc, var(--line)); box-shadow: 0 0 40px -6px var(--oc, #000); animation: pop .4s cubic-bezier(.2, 1.4, .4, 1); }
-  #over h2 { margin: 0 0 4px; font-size: 26px; color: var(--oc); }
-  #over p { margin: 0 0 14px; color: var(--dim); }
-  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-  @keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-
-  button.b { font: inherit; color: var(--text); background: #1d2433; border: 1px solid var(--line); border-radius: 8px; padding: 5px 14px; cursor: pointer; transition: background .15s, border-color .15s; }
-  button.b:hover { background: #26304a; border-color: #3a4868; }
-
-  #side { width: 290px; flex: none; background: var(--panel); border-left: 1px solid var(--line); padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
-  #head { display: flex; align-items: center; justify-content: space-between; }
-  #head h1 { margin: 0; font-size: 20px; letter-spacing: .08em; }
-  #you { display: flex; align-items: center; gap: 10px; font-weight: 600; }
-  #you img { width: 36px; height: 36px; }
-  #turn { color: var(--dim); }
-  #corners { display: flex; gap: 6px; align-items: center; }
-  #corners img { width: 26px; height: 26px; }
-  #stat { color: var(--dim); font-size: 13px; }
-  #log { font-size: 12.5px; height: 11.5em; overflow: hidden; border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; justify-content: flex-end; }
-  #log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
-  #log .lC::before, #log .lR::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
-  #log .lC::before { background: var(--C); } #log .lR::before { background: var(--R); }
-  #log div:last-child { color: var(--text); }
-  details { color: var(--dim); font-size: 13px; }
-  summary { cursor: pointer; color: var(--text); }
-  .leg { display: grid; grid-template-columns: 26px 1fr; gap: 3px 8px; align-items: center; margin-top: 6px; }
-  .leg img { width: 26px; height: 26px; }
-  .rules { margin: 6px 0 0; white-space: pre-wrap; font: 12px/1.45 inherit; }
-
-  @media (max-width: 760px) {
-    #app { flex-direction: column; }
-    #side { width: 100%; max-height: 38%; border-left: 0; border-top: 1px solid var(--line); }
-  }
+  html, body { height: 100%; margin: 0; background: #14151f; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; cursor: pointer; }
 </style>
 </head>
 <body>
-<div id="app">
-  <div id="stage">
-    <canvas id="c"></canvas>
-    <div id="toast"></div>
-    <div id="menu"></div>
-    <div id="over"><div class="card"><h2 id="overT"></h2><p id="overP"></p><button class="b" id="again">play again</button></div></div>
-  </div>
-  <aside id="side">
-    <div id="head"><h1>TAG</h1><button class="b" id="new">new game</button></div>
-    <div id="you"></div>
-    <div id="turn"></div>
-    <div id="corners"></div>
-    <div id="stat"></div>
-    <div id="log"></div>
-    <details>
-      <summary>runes</summary>
-      <div class="leg" id="leg"></div>
-    </details>
-    <details>
-      <summary>rules</summary>
-      <div class="rules">Chaser wins by stepping onto the runner.
-Runner wins by touching all four corner flags.
-Tie: same position 3 times, nobody can act, or 400 turns.
-
-One action per turn, runner first. Click your piece to open the action ring:
-move: up to 2 single steps. Facing = last step.
-place: put a rune within 2 hexes.
-type: change the type of a rune within 1.
-strength: bump a rune (1-3) within 2.
-remove: take the rune on the hex 60 degrees left of your facing (dashed marker). A wall loses 1 durability instead.
-
-No runes on corners, the center, or on a player. Every rune affects both players; buff runes have cooldowns. Frozen players cannot move but can still place, modify and remove. One bomb per player.</div>
-    </details>
-  </aside>
-</div>
+<canvas id="c"></canvas>
 <script src="game.js"></script>
 <script src="ui.js"></script>
 </body>
