@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tag</title>
+<style>
+  body { font: 14px/1.45 ui-monospace, Menlo, Consolas, monospace; margin: 16px; color: #111; background: #fff; }
+  main { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  canvas { border: 1px solid #111; max-width: 100%; height: auto; cursor: pointer; }
+  aside { width: 310px; }
+  h1 { font-size: 14px; margin: 0 0 8px; font-weight: bold; }
+  button { font: inherit; border: 1px solid #111; background: #fff; color: #111; padding: 2px 8px; margin: 0 4px 4px 0; cursor: pointer; border-radius: 0; }
+  button.on { background: #111; color: #fff; }
+  button:disabled { color: #aaa; border-color: #aaa; cursor: default; }
+  .row { margin: 0 0 10px; }
+  #stat, #hint { white-space: pre-wrap; }
+  #hint { min-height: 2.9em; color: #444; }
+  #log { margin: 0; height: 9.5em; overflow: hidden; color: #444; white-space: pre-wrap; border-top: 1px solid #ccc; padding-top: 6px; }
+  details { margin-top: 12px; }
+  details pre { white-space: pre-wrap; margin: 6px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <canvas id="c"></canvas>
+  <aside>
+    <h1>tag</h1>
+    <div class="row" id="stat"></div>
+    <div class="row" id="acts"></div>
+    <div class="row" id="pal"></div>
+    <div class="row" id="hint"></div>
+    <pre id="log"></pre>
+    <button id="new">new game</button>
+    <details>
+      <summary>rules</summary>
+      <pre>chaser wins by stepping onto the runner.
+runner wins by touching all four corner hexes.
+tie: same position 3 times, neither side able to act, or 240 turns.
+
+one action per turn, runner first:
+1 move   up to 2 single steps. facing = last step.
+2 place  a rune within 2 hexes.
+3 type   change type of a rune within 1.
+4 str    bump strength (1-3) of a rune within 2.
+5 remove rune on the hex to your left (60 deg left of facing). wall loses 1 durability instead.
+
+no runes on corners, the center, or on a player.
+every rune affects both players. buff runes have cooldowns.
+frozen: cannot move, can still place/modify/remove.
+
+B bomb      hidden 6-hex zone, drawn by the placer. whoever walks in is frozen for strength turns. spent on use. a rune placed in a zone, or a zone drawn over a rune, destroys both. one per player.
+D dash      +2+strength steps.
+P push      shoved strength hexes along the arrow, no triggers on the way or on landing.
+T teleport  jump to another teleport, +strength steps.
+W wall      blocks movement. strength = durability.
+G grab      stepper's move ends, next strength moves are 1 step.
+H return    go to the center. higher strength = shorter cooldown.</pre>
+    </details>
+  </aside>
+</main>
+<script src="game.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
