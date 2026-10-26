@@ -15,19 +15,19 @@ const PC = { C: PAL.r, R: PAL.a };
 const ZONE = '#9b5fc0', ICE = PAL.a;
 
 const SHORT = {
-  Bomb: 'HIDDEN 6-HEX ZONE, FREEZES WHOEVER WALKS IN. ONE EACH',
-  Dash: '+2 PLUS STRENGTH EXTRA STEPS',
-  Push: 'SHOVES YOU ALONG ITS ARROW. YOU PICK THE DIRECTION',
+  Bomb: 'HIDDEN 6-HEX ZONE, FREEZES WHOEVER WALKS IN AND SMASHES BOULDERS. ONE EACH',
+  Dash: '+2 PLUS STRENGTH EXTRA STEPS. EACH UPGRADE ADDS 2',
+  Push: 'SHOVES YOU STRENGTH HEXES. PLACE 2, EACH WITH A DIRECTION. UPGRADES ADD 2',
   Teleport: 'JUMP TO ANOTHER TELEPORT, + STRENGTH STEPS',
   Wall: 'BLOCKS MOVEMENT. UP TO 3 PER PLACEMENT. NEVER SEALS A BEACON',
-  Grab: 'PLACE 4+ HEXES AWAY. STEPPING ON IT SLOWS THE OTHER PLAYER',
+  Grab: 'PLACE 4+ AWAY. STEP ON IT: THE OTHER PLAYER MOVES 1 LESS FOR STRENGTH TURNS',
   Return: 'GO TO THE CENTER. MORE STRENGTH = FASTER RECHARGE',
 };
 const ACT = {
-  move: 'MOVE UP TO 2 STEPS', place: 'PLACE A RUNE WITHIN 2', type: 'CHANGE A RUNE TYPE WITHIN 1',
-  str: 'UPGRADE A RUNE WITHIN 2 (MAX 3 TIMES)', remove: 'REMOVE THE RUNE ON YOUR LEFT', end: 'END MOVE',
+  move: 'MOVE UP TO 2 STEPS', place: 'PLACE A RUNE WITHIN 2', str: 'UPGRADE A RUNE WITHIN 2 (MAX 3 TIMES)',
+  remove: 'REMOVE A RUNE WITHIN 1', end: 'END MOVE',
 };
-const ACOL = { move: PAL.l, place: PAL.y, type: ZONE, str: PAL.c, remove: PAL.r, end: PAL.s };
+const ACOL = { move: PAL.l, place: PAL.y, str: PAL.c, remove: PAL.r, end: PAL.s };
 
 // ---------- bitmap font (5x7) ----------
 
@@ -165,7 +165,6 @@ SP.pushG = SP.push.map(gray); SP.pushW = SP.push.map(white);
 
 SP.act.move = art(['......w.....', '......ww....', '......www...', '......wwww..', 'wwwwwwwwwww.', 'wwwwwwwwwwww', 'wwwwwwwwwww.', '......wwww..', '......www...', '......ww....', '......w.....']);
 SP.act.place = art(['.....ww.....', '.....ww.....', '.....ww.....', '..wwwwwwww..', '..wwwwwwww..', '.....ww.....', '.....ww.....', '.....ww.....']);
-SP.act.type = art(['.......w....', '.......ww...', '..wwwwwwww..', '.......ww...', '.......w....', '....w.......', '...ww.......', '..wwwwwwww..', '...ww.......', '....w.......']);
 SP.act.str = art(['.....ww.....', '....wwww....', '...wwwwww...', '..wwwwwwww..', '.....ww.....', '.....ww.....', '.....ww.....', '.....ww.....', '..wwwwwwww..']);
 SP.act.remove = art(['.ww......ww.', '..ww....ww..', '...ww..ww...', '....wwww....', '.....ww.....', '....wwww....', '...ww..ww...', '..ww....ww..', '.ww......ww.']);
 SP.act.end = fromFn(14, 14, (i, j) => (i >= 3 && i <= 10 && j >= 3 && j <= 10 ? PAL.w : null));
@@ -201,6 +200,11 @@ function stoneTile(v) {
 }
 const TILE = [0, 1, 2, 3, 4, 5].map(stoneTile);
 const TILE_BEACON = hexSprite('#4a3b32', PAL.d);
+const ROCK = remap(art([
+  '..dddd......', '.dsddddd....', 'dsddddddd.d.', 'dddddedddddd', 'ddddedddeddd', 'dddeeddddedd',
+  '.deeeedddeed', '.deeeeedeee.', '..eeeeeeee..', '....eeee....'], true),
+  (r, g, b) => (r === 86 ? '#8a7a6a' : r === 51 ? '#5e5046' : r === 148 ? '#b0a090' : PAL.k));
+const TILE_ROCK = (() => { const c = hexSprite('#2c3040', PAL.d); c.getContext('2d').drawImage(ROCK, 1, 4); return c; })();
 const hsCache = {};
 const hs = (fill, edge, dither) => { const k = fill + edge + dither; return hsCache[k] || (hsCache[k] = hexSprite(fill, edge, dither)); };
 
@@ -257,13 +261,15 @@ function hexAt(nx, ny) {
 
 let S = null, human = 'R', mode = 'bot', screen = 'menu', busy = false, ui = null;
 const M = { x: -1, y: -1 };
-const A = { pl: {}, known: {}, pops: {}, ghosts: [], rip: [], parts: [], prevHex: {}, prevV: [0, 0, 0, 0], flash: null };
+const A = { pl: {}, known: {}, pops: {}, ghosts: [], rip: [], parts: [], prevHex: {}, prevV: [0, 0, 0, 0], flash: null, rocks: {} };
+const game = { rec: [], lastN: 0, learned: false, stat: null };
 const now = () => performance.now();
-const newUi = () => ({ mode: null, type: 'Dash', pend: null, menu: null, pick: null, menuT: 0, help: false, tip: '', walls: null });
+const newUi = () => ({ mode: null, type: 'Dash', pend: null, menu: null, menuT: 0, help: false, tip: '', walls: null, pushes: null });
 ui = newUi();
 
 function resetAnim() {
-  A.known = {}; A.pops = {}; A.ghosts = []; A.rip = []; A.parts = []; A.flash = null; A.prevV = [0, 0, 0, 0];
+  A.known = {}; A.pops = {}; A.ghosts = []; A.rip = []; A.parts = []; A.flash = null; A.prevV = [0, 0, 0, 0]; A.rocks = Object.assign({}, S.rocks);
+  game.rec = []; game.lastN = 0; game.learned = false; game.stat = null;
   ['C', 'R'].forEach(w => { const c = hc(S.p[w]); A.pl[w] = { x: c.x, y: c.y }; A.prevHex[w] = { q: S.p[w].q, r: S.p[w].r }; });
 }
 
@@ -304,8 +310,8 @@ function sync() {
     const k = A.known[r.id];
     if (!k) A.pops[r.id] = t;
     else if (r.cd > k.cd) ripple(r, RC[r.type], 22, 500);
-    else if (r.str > k.str) { ripple(r, PAL.w, 16, 450); burst(r, [PAL.y, PAL.w], 6, 40, 400); }
-    A.known[r.id] = { id: r.id, type: r.type, q: r.q, r: r.r, str: r.str, dir: r.dir, cd: r.cd };
+    else if (r.lv > k.lv) { ripple(r, PAL.w, 16, 450); burst(r, [PAL.y, PAL.w], 6, 40, 400); }
+    A.known[r.id] = { id: r.id, type: r.type, q: r.q, r: r.r, str: r.str, lv: r.lv, dir: r.dir, cd: r.cd };
   });
   ['C', 'R'].forEach(w => {
     const p = S.p[w], pv = A.prevHex[w], d = T.dist(pv, p);
@@ -317,12 +323,25 @@ function sync() {
     if (v && !A.prevV[i]) { ripple(S.beacons[i], PAL.y, 34, 900); burst(S.beacons[i], [PAL.y, PAL.w, PAL.o], 14, 60, 800); }
     A.prevV[i] = v;
   });
+  Object.keys(A.rocks).forEach(k => {
+    if (!S.rocks[k]) { const [q, r] = k.split(',').map(Number); burst({ q, r }, [PAL.s, PAL.d, PAL.w], 12, 55, 550); ripple({ q, r }, PAL.s, 18, 450); }
+  });
+  A.rocks = Object.assign({}, S.rocks);
   if (S.flash && S.flash !== A.flash) A.flash = S.flash;
+}
+
+// the bot learns from every game it plays against a person (see brain.js)
+function learnTick() {
+  if (mode !== 'bot' || !window.Brain || !S) return;
+  if (S.n !== game.lastN) { game.lastN = S.n; game.rec.push(Brain.snap(S, T.other(S.turn))); }
+  else if (S.over && !game.learned && S.over.w !== null && game.rec.length) game.rec.push(Brain.snap(S, S.turn));
+  if (S.over && !game.learned) { game.learned = true; game.stat = Brain.finish(game.rec, S.over, human); }
 }
 
 // runs after every state change on the machine that owns the rules (bot game or host)
 function next() {
   sync();
+  learnTick();
   if (mode !== 'guest') {
     if (!S.over && !S.moving && !Object.values(T.avail(S)).some(Boolean)) { T.pass(S); next(); return; }
     broadcast();
@@ -346,7 +365,7 @@ function botTurn() {
   })();
 }
 
-function clearUi() { ui.mode = null; ui.pend = null; ui.menu = null; ui.walls = null; }
+function clearUi() { ui.mode = null; ui.pend = null; ui.menu = null; ui.walls = null; ui.pushes = null; }
 function done() { clearUi(); next(); }
 
 // every player action goes through here; a guest only sends it to the host
@@ -364,8 +383,10 @@ function cancel() {
   if (screen === 'game') {
     if (ui.help) { ui.help = false; return; }
     if (!mine() || S.moving) return;
-    if (ui.mode === 'shape' || ui.mode === 'dir') ui.mode = ui.pend.retype != null ? 'type' : 'place';
+    if (ui.mode === 'shape') ui.mode = 'place';
+    else if (ui.mode === 'dir') ui.mode = ui.pushes && ui.pushes.length ? 'pushes' : 'place';
     else if (ui.mode === 'walls') { ui.mode = 'place'; ui.walls = null; }
+    else if (ui.mode === 'pushes') { ui.mode = 'place'; ui.pushes = null; }
     else ui.mode = null;
     ui.pend = null; ui.menu = null;
   } else if (screen === 'join' || screen === 'host' || screen === 'wait' || screen === 'msg') toMenu();
@@ -381,8 +402,8 @@ function boardClick(h) {
   } else if (m === 'place') {
     if (!T.placeOk(S, ui.type, h.q, h.r)) return;
     if (ui.type === 'Wall') { if (T.wallsOk(S, [[h.q, h.r]])) { ui.walls = [[h.q, h.r]]; ui.mode = 'walls'; } }
-    else if (ui.type === 'Bomb') { ui.pend = { q: h.q, r: h.r, shape: [[h.q, h.r]], retype: null }; ui.mode = 'shape'; }
-    else if (ui.type === 'Push') { ui.pend = { q: h.q, r: h.r, retype: null }; ui.mode = 'dir'; }
+    else if (ui.type === 'Bomb') { ui.pend = { q: h.q, r: h.r, shape: [[h.q, h.r]] }; ui.mode = 'shape'; }
+    else if (ui.type === 'Push') { ui.pushes = []; ui.pend = { q: h.q, r: h.r }; ui.mode = 'dir'; }
     else doOp({ k: 'place', t: ui.type, q: h.q, r: h.r, opt: {} });
   } else if (m === 'walls') {
     const i = ui.walls.findIndex(v => v[0] === h.q && v[1] === h.r);
@@ -391,52 +412,49 @@ function boardClick(h) {
     if (ui.walls.length >= 3 || !T.wallsOk(S, next2)) return;
     ui.walls = next2;
     if (ui.walls.length === 3) confirmWalls();
+  } else if (m === 'pushes') {
+    const i = ui.pushes.findIndex(v => v.q === h.q && v.r === h.r);
+    if (i >= 0) { ui.pushes.splice(i, 1); if (!ui.pushes.length) { ui.pushes = null; ui.mode = 'place'; } return; }
+    if (ui.pushes.length >= 2 || !T.placeOk(S, 'Push', h.q, h.r)) return;
+    ui.pend = { q: h.q, r: h.r }; ui.mode = 'dir';
   } else if (m === 'dir') {
     const pd = ui.pend, d = T.DIRS.findIndex(v => pd.q + v[0] === h.q && pd.r + v[1] === h.r);
     if (d < 0) return;
-    if (pd.retype != null) doOp({ k: 'retype', id: pd.retype, t: 'Push', opt: { dir: d } });
-    else doOp({ k: 'place', t: 'Push', q: pd.q, r: pd.r, opt: { dir: d } });
-  } else if (m === 'type') {
-    const rn = T.runeAt(S, h.q, h.r);
-    if (!rn || rn.type === ui.type || T.dist(p, rn) > 1 || ui.type === 'Grab') return;
-    if (ui.type === 'Wall' && !T.beaconsOpen(S, [[rn.q, rn.r]])) return;
-    if (ui.type === 'Bomb') {
-      if (S.runes.some(x => x !== rn && x.type === 'Bomb' && x.owner === human)) return;
-      ui.pend = { q: rn.q, r: rn.r, shape: [[rn.q, rn.r]], retype: rn.id }; ui.mode = 'shape';
-    } else if (ui.type === 'Push') { ui.pend = { q: rn.q, r: rn.r, retype: rn.id }; ui.mode = 'dir'; }
-    else doOp({ k: 'retype', id: rn.id, t: ui.type, opt: {} });
+    ui.pushes.push({ q: pd.q, r: pd.r, dir: d }); ui.pend = null;
+    if (ui.pushes.length === 2) confirmPushes(); else ui.mode = 'pushes';
   } else if (m === 'str') {
     const rn = T.runeAt(S, h.q, h.r);
-    if (rn && T.dist(p, rn) <= 2 && rn.str < T.MAXSTR) doOp({ k: 'bump', id: rn.id });
+    if (rn && T.dist(p, rn) <= 2 && rn.lv < T.MAXLV) doOp({ k: 'bump', id: rn.id });
+  } else if (m === 'remove') {
+    const rn = T.runeAt(S, h.q, h.r);
+    if (rn && T.dist(p, rn) <= 1) doOp({ k: 'remove', id: rn.id });
   } else if (m === 'shape') {
     const pd = ui.pend;
     if (T.dist(h, pd) > 2 || (h.q === pd.q && h.r === pd.r)) return;
     const i = pd.shape.findIndex(v => v[0] === h.q && v[1] === h.r);
     if (i >= 0) pd.shape.splice(i, 1); else pd.shape.push([h.q, h.r]);
-    if (pd.shape.length === 6) {
-      if (pd.retype != null) doOp({ k: 'retype', id: pd.retype, t: 'Bomb', opt: { shape: pd.shape } });
-      else doOp({ k: 'place', t: 'Bomb', q: pd.q, r: pd.r, opt: { shape: pd.shape } });
-    }
+    if (pd.shape.length === 6) doOp({ k: 'place', t: 'Bomb', q: pd.q, r: pd.r, opt: { shape: pd.shape } });
   }
 }
 function confirmWalls() { if (mine() && ui.walls && ui.walls.length) doOp({ k: 'walls', hexes: ui.walls }); }
+function confirmPushes() { if (mine() && ui.pushes && ui.pushes.length) doOp({ k: 'pushes', list: ui.pushes }); }
 
 // ---------- action ring ----------
 
 let menuMemo = { key: '', items: [] };
 function menuItems() {
-  const k = [S.n, S.nid, S.moving, ui.menu, ui.pick, S.steps].join('|');
+  const k = [S.n, S.nid, S.moving, ui.menu, S.steps].join('|');
   if (menuMemo.key === k) return menuMemo.items;
   const a = T.avail(S);
   let items;
   if (ui.menu === 'moving') items = [{ id: 'end', tip: ACT.end, ok: true, kind: 'act' }];
   else if (ui.menu === 'rune') {
-    const placing = ui.pick === 'place', hasBomb = S.runes.some(x => x.type === 'Bomb' && x.owner === human);
+    const hasBomb = S.runes.some(x => x.type === 'Bomb' && x.owner === human);
     items = T.TYPES.map(t => ({
       id: t, tip: t + ': ' + SHORT[t], kind: 'rune',
-      ok: !(t === 'Bomb' && hasBomb) && (placing ? (t === 'Wall' ? T.placeTargets(S, 'Wall').some(h => T.wallsOk(S, [[h.q, h.r]])) : T.placeTargets(S, t).length > 0) : t !== 'Grab'),
+      ok: !(t === 'Bomb' && hasBomb) && (t === 'Wall' ? T.placeTargets(S, 'Wall').some(h => T.wallsOk(S, [[h.q, h.r]])) : T.placeTargets(S, t).length > 0),
     }));
-  } else items = ['move', 'place', 'type', 'str', 'remove'].map(id => ({ id, tip: ACT[id], ok: !!a[id], kind: 'act' }));
+  } else items = ['move', 'place', 'str', 'remove'].map(id => ({ id, tip: ACT[id], ok: !!a[id], kind: 'act' }));
   menuMemo = { key: k, items };
   return items;
 }
@@ -444,15 +462,14 @@ function menuItems() {
 function onMenu(id) {
   if (!mine()) return;
   if (id === 'end') { endMove(); return; }
-  if (id === 'remove') { ui.menu = null; doOp({ k: 'remove' }); return; }
-  if (id === 'place' || id === 'type') { ui.menu = 'rune'; ui.pick = id; ui.menuT = now(); return; }
-  if (T.TYPES.includes(id)) { ui.type = id; ui.mode = ui.pick; ui.menu = null; return; }
+  if (id === 'place') { ui.menu = 'rune'; ui.menuT = now(); return; }
+  if (T.TYPES.includes(id)) { ui.type = id; ui.mode = 'place'; ui.menu = null; return; }
   ui.mode = id; ui.menu = null;
 }
 
 function openMenu() {
   if (ui.menu) { ui.menu = null; return; }
-  ui.mode = null; ui.pend = null; ui.walls = null; ui.menu = S.moving ? 'moving' : 'main'; ui.menuT = now();
+  ui.mode = null; ui.pend = null; ui.walls = null; ui.pushes = null; ui.menu = S.moving ? 'moving' : 'main'; ui.menuT = now();
 }
 
 // ---------- online ----------
@@ -468,11 +485,14 @@ const newCode = () => Array.from({ length: 5 }, () => CODE_CHARS[Math.floor(Math
 const linkFor = code => location.href.split('#')[0] + '#' + code;
 const guestRole = () => T.other(human);
 
+const unpackRocks = list => { const o = {}; (list || []).forEach(k => { o[k] = 1; }); return o; };
+
 function snapFor(role) {
   const o = {};
   ['turn', 'n', 'steps', 'moving', 'noMove', 'slow', 'over', 'passes', 'nid', 'beacons', 'p', 'flash'].forEach(k => { o[k] = S[k]; });
   // the other side never learns the shape of your bomb zones
   o.runes = S.runes.map(r => (r.type === 'Bomb' && r.owner !== role ? Object.assign({}, r, { shape: [[r.q, r.r]] }) : r));
+  o.rocks = Object.keys(S.rocks);
   return o;
 }
 
@@ -486,7 +506,7 @@ function leaveRoom() {
   try { if (net.room) net.room.leave(); } catch (e) { /* ignore */ }
   net.room = null; net.peer = null; net.acts = {}; clearTimeout(net.timer);
 }
-function toMenu() { leaveRoom(); mode = 'bot'; screen = 'menu'; S = null; busy = false; history.replaceState(null, '', location.pathname + location.search); }
+function toMenu() { tr.running = false; leaveRoom(); mode = 'bot'; screen = 'menu'; S = null; busy = false; history.replaceState(null, '', location.pathname + location.search); }
 function fail(msg) { leaveRoom(); net.msg = msg; screen = 'msg'; }
 
 async function openRoom(code, asHost) {
@@ -534,6 +554,7 @@ function startHosted() {
 function onStart(d) {
   mode = 'guest'; human = d.role;
   S = Object.assign({ sim: false, hist: {}, log: d.lines.slice() }, d.snap);
+  S.rocks = unpackRocks(d.snap.rocks);
   ui = newUi(); busy = false; resetAnim(); screen = 'game';
   sync();
 }
@@ -541,6 +562,7 @@ function onSnap(d) {
   if (mode !== 'guest' || !S) return;
   const log = S.log.concat(d.lines);
   S = Object.assign({ sim: false, hist: {}, log }, d.s);
+  S.rocks = unpackRocks(d.s.rocks);
   if (S.over || S.turn !== human) clearUi();
   sync();
 }
@@ -592,6 +614,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Enter' || e.key === ' ') {
     if (screen === 'game' && S.moving) { e.preventDefault(); endMove(); }
     else if (screen === 'game' && ui.mode === 'walls') { e.preventDefault(); confirmWalls(); }
+    else if (screen === 'game' && ui.mode === 'pushes') { e.preventDefault(); confirmPushes(); }
   }
 });
 document.addEventListener('paste', e => {
@@ -640,19 +663,20 @@ function highlightCells() {
   if (m === 'move') T.DIRS.forEach(d => { const q = p.q + d[0], r = p.r + d[1]; if (T.canEnter(S, human, q, r)) add(T.cellMap[T.key(q, r)]); });
   else if (m === 'place') T.cells.filter(h => T.placeOk(S, ui.type, h.q, h.r) && (ui.type !== 'Wall' || T.wallsOk(S, [[h.q, h.r]]))).forEach(add);
   else if (m === 'walls') T.cells.filter(h => !ui.walls.some(v => v[0] === h.q && v[1] === h.r) && ui.walls.length < 3 && T.wallsOk(S, ui.walls.concat([[h.q, h.r]]))).forEach(add);
+  else if (m === 'pushes') T.cells.filter(h => ui.pushes.length < 2 && !ui.pushes.some(v => v.q === h.q && v.r === h.r) && T.placeOk(S, 'Push', h.q, h.r)).forEach(add);
   else if (m === 'dir') T.DIRS.forEach(d => { const h = T.cellMap[T.key(ui.pend.q + d[0], ui.pend.r + d[1])]; if (h) add(h); });
-  else if (m === 'type') S.runes.filter(r => T.dist(p, r) <= 1 && r.type !== ui.type && ui.type !== 'Grab').forEach(add);
-  else if (m === 'str') S.runes.filter(r => T.dist(p, r) <= 2 && r.str < T.MAXSTR).forEach(add);
+  else if (m === 'str') S.runes.filter(r => T.dist(p, r) <= 2 && r.lv < T.MAXLV).forEach(add);
+  else if (m === 'remove') S.runes.filter(r => T.dist(p, r) <= 1).forEach(add);
   else if (m === 'shape') T.cells.filter(h => T.dist(h, ui.pend) <= 2).forEach(add);
   return hl;
 }
 function modeColor() {
   const m = S.moving ? 'move' : ui.mode;
-  return m === 'place' || m === 'type' ? RC[ui.type] : m === 'shape' ? ZONE : m === 'walls' ? RC.Wall : m === 'dir' ? RC.Push : ACOL[m] || PAL.l;
+  return m === 'place' ? RC[ui.type] : m === 'shape' ? ZONE : m === 'walls' ? RC.Wall : m === 'dir' || m === 'pushes' ? RC.Push : ACOL[m] || PAL.l;
 }
 
 function drawRune(r, p, white, t) {
-  const cool = r.cd > 0, lv = Math.min(3, r.str - 1);
+  const cool = r.cd > 0, lv = Math.min(3, r.lv);
   img(cool ? PLATE_G[lv] : PLATE[r.type][lv], p.x - 8, p.y - 9);
   const icon = r.type === 'Push' ? (white ? SP.pushW[r.dir] : cool ? SP.pushG[r.dir] : SP.push[r.dir])
     : (white ? SP.runeW[r.type] : cool ? SP.runeG[r.type] : SP.rune[r.type]);
@@ -676,7 +700,7 @@ function scene(t) {
 
   T.cells.forEach(h => {
     const tp = tilePos(h);
-    img(isBeacon(h) ? TILE_BEACON : TILE[rng(h.q * 73 + h.r * 19 + 7) % 6], tp.x, tp.y);
+    img(S.rocks[T.key(h.q, h.r)] ? TILE_ROCK : isBeacon(h) ? TILE_BEACON : TILE[rng(h.q * 73 + h.r * 19 + 7) % 6], tp.x, tp.y);
   });
   const ce = ctr(T.CENTER);
   [[0, 0], [0, -3], [0, 3], [-3, 0], [3, 0]].forEach(o => px1(ce.x + o[0], ce.y + o[1], 1, 1, PAL.s));
@@ -690,6 +714,7 @@ function scene(t) {
     });
   });
   if (ui.pend && ui.pend.shape) ui.pend.shape.forEach(h => { const tp = tilePos({ q: h[0], r: h[1] }); img(hs(ZONE, ZONE), tp.x, tp.y); });
+  if (ui.pushes) ui.pushes.forEach(h => { const tp = tilePos(h); img(hs(RC.Push, PAL.w, phase), tp.x, tp.y); });
   if (ui.walls) ui.walls.forEach(h => { const tp = tilePos({ q: h[0], r: h[1] }); img(hs(PAL.s, PAL.w, phase), tp.x, tp.y); });
   if (A.flash && S.flash === A.flash && S.n - A.flash.n <= 1) A.flash.hexes.forEach(h => {
     const tp = tilePos({ q: h[0], r: h[1] });
@@ -720,7 +745,8 @@ function scene(t) {
   A.ghosts = A.ghosts.filter(gh => t - gh.t < 300);
   A.ghosts.forEach(gh => { if (flicker(t - gh.t, 300)) drawRune(gh.r, ctr(gh.r), true, t); });
 
-  // push direction picker: arrows on the six neighbours
+  // pushes chosen so far this action, then the direction picker (arrows on the six neighbours)
+  if (ui.pushes && mine()) ui.pushes.forEach(h => { const c = ctr(h); img(PLATE.Push[0], c.x - 8, c.y - 9); img(SP.push[h.dir], c.x - 7, c.y - 8); });
   if (ui.mode === 'dir' && ui.pend && mine()) {
     const c = ctr(ui.pend);
     img(PLATE.Push[0], c.x - 8, c.y - 9);
@@ -730,11 +756,6 @@ function scene(t) {
     });
   }
 
-  // removable rune marker
-  if (mine() && !S.moving && !ui.menu) {
-    const l = T.leftHex(S), rn = T.runeAt(S, l.q, l.r);
-    if (rn) { const tp = tilePos(l); img(hs(null, PAL.r), tp.x, tp.y); if (phase) img(hs(PAL.r, null, 0), tp.x, tp.y); }
-  }
   const hv = hexAt(M.x, M.y);
   if (hv && mine()) { const tp = tilePos(hv); img(hs(null, PAL.w), tp.x, tp.y); }
 
@@ -757,8 +778,6 @@ function scene(t) {
     }
     if (pl.grab || (S.turn === w && S.slow)) ring(x, y - 1, 12, PAL.r, true, Math.floor(t / 90));
     img(SP[w], x - 7, y - 9 - bob);
-    const a = -pl.f * Math.PI / 3, fx = x + Math.cos(a) * 9, fy = y - 1 + Math.sin(a) * 8.5;
-    px1(fx - 2, fy - 2, 4, 4, PAL.k); px1(fx - 1, fy - 1, 2, 2, PC[w]);
   });
   if (mine() && !ui.menu && !ui.mode && !S.moving) {
     const d = A.pl[human];
@@ -809,15 +828,17 @@ function hintText() {
     case 'move': return 'CLICK A HIGHLIGHTED NEIGHBOUR TO STEP.';
     case 'place': return ui.type === 'Grab' ? 'PLACE GRAB: ANY HEX AT LEAST 4 AWAY FROM YOU (OUTLINED).'
       : ui.type === 'Wall' ? 'PLACE WALL: CLICK UP TO 3 HEXES, THEN CONFIRM.'
-      : 'PLACE ' + ui.type + ': CLICK A HIGHLIGHTED HEX.' + (ui.type === 'Bomb' ? ' THEN DRAW ITS ZONE.' : ui.type === 'Push' ? ' THEN PICK A DIRECTION.' : '');
+      : ui.type === 'Push' ? 'PLACE PUSH: CLICK A HEX, THEN PICK ITS DIRECTION. YOU CAN PLACE 2.'
+      : 'PLACE ' + ui.type + ': CLICK A HIGHLIGHTED HEX.' + (ui.type === 'Bomb' ? ' THEN DRAW ITS ZONE.' : '');
+    case 'pushes': return 'PUSHES ' + ui.pushes.length + '/2. CLICK ANOTHER HEX FOR A SECOND PUSH (CLICK ONE AGAIN TO UNDO), THEN CONFIRM (ENTER).';
     case 'walls': return 'WALLS ' + ui.walls.length + '/3. CLICK MORE HEXES (CLICK AGAIN TO UNDO), THEN CONFIRM (ENTER).';
     case 'dir': return 'PICK THE PUSH DIRECTION: CLICK AN ARROW HEX. ESC TO GO BACK.';
     case 'shape': return 'DRAW THE ZONE: ' + (6 - ui.pend.shape.length) + ' MORE HEX(ES) WITHIN 2 OF THE BOMB. ESC TO GO BACK.';
-    case 'type': return 'CONVERT TO ' + ui.type + ': CLICK A HIGHLIGHTED RUNE.';
     case 'str': return 'CLICK A HIGHLIGHTED RUNE TO UPGRADE IT (MAX 3).';
+    case 'remove': return 'CLICK A HIGHLIGHTED RUNE WITHIN 1 TO REMOVE IT.';
     default: {
       const hv = hexAt(M.x, M.y), rn = hv && T.runeAt(S, hv.q, hv.r);
-      if (rn) return rn.type + ' UPGRADED ' + (rn.str - 1) + '/3' + (rn.cd ? ', RECHARGING ' + rn.cd : '') + '.';
+      if (rn) return rn.type + ' STRENGTH ' + rn.str + ', UPGRADED ' + rn.lv + '/3' + (rn.cd ? ', RECHARGING ' + rn.cd : '') + '.';
       return 'YOUR TURN. CLICK YOUR PIECE TO PICK AN ACTION.' + (S.noMove ? ' (FROZEN: NO MOVING)' : '');
     }
   }
@@ -838,10 +859,11 @@ function panelA(x, y, w) {
   text(g, 'BEACONS', x, y + 2, PAL.s);
   S.p.R.v.forEach((v, i) => img(v ? SP.beacon : SP.beaconOff, x + 50 + i * 15, y - 2));
   y += 15;
-  const fl = p => [p.frozen ? 'FROZEN ' + p.frozen : '', p.grab ? 'SLOW -' + p.grab : ''].filter(Boolean).join(' ') || 'OK';
-  const st = w2 => S.p[w2].frozen || S.p[w2].grab ? ICE : PAL.s;
-  text(g, 'CHASER ' + fl(S.p.C), x, y, st('C'));
-  text(g, 'RUNNER ' + fl(S.p.R), x, y + 10, st('R'));
+  const slow = (p, w2) => p.grab + (S.turn === w2 ? S.slow : 0);
+  const fl = (p, w2) => [p.frozen ? 'FROZEN ' + p.frozen : '', slow(p, w2) ? 'SLOWED ' + slow(p, w2) : ''].filter(Boolean).join(' ') || 'OK';
+  const st = w2 => S.p[w2].frozen || slow(S.p[w2], w2) ? ICE : PAL.s;
+  text(g, 'CHASER ' + fl(S.p.C, 'C'), x, y, st('C'));
+  text(g, 'RUNNER ' + fl(S.p.R, 'R'), x, y + 10, st('R'));
   return y + 24;
 }
 
@@ -852,6 +874,9 @@ function panelB(x, y, w, h) {
   y += 44;
   if (mine() && ui.mode === 'walls' && ui.walls) {
     button('CONFIRM ' + ui.walls.length + ' WALL' + (ui.walls.length > 1 ? 'S' : ''), x, y - 2, Math.min(w, 110), 14, confirmWalls);
+    y += 16; h -= 16;
+  } else if (mine() && ui.mode === 'pushes' && ui.pushes) {
+    button('CONFIRM ' + ui.pushes.length + ' PUSH' + (ui.pushes.length > 1 ? 'ES' : ''), x, y - 2, Math.min(w, 110), 14, confirmPushes);
     y += 16; h -= 16;
   }
   px1(x, y - 4, w, 1, PAL.d);
@@ -868,22 +893,22 @@ const HELP = [
   'RUNNER: LIGHT ALL 4 BEACONS TO WIN.',
   'TIE: SAME POSITION 3X, NO ACTIONS, 600 TURNS.',
   'ONE ACTION PER TURN. CLICK YOUR PIECE:',
-  ' MOVE     UP TO 2 STEPS (FACING = LAST STEP)',
-  ' PLACE    A RUNE WITHIN 2. WALLS: UP TO 3 AT ONCE',
-  ' TYPE     CHANGE A RUNE WITHIN 1',
-  ' UPGRADE  A RUNE WITHIN 2, MAX 3 TIMES',
-  ' REMOVE   THE RUNE ON YOUR LEFT (RED EDGE)',
+  ' MOVE     UP TO 2 STEPS',
+  ' PLACE    A RUNE WITHIN 2. UP TO 3 WALLS OR 2 PUSHES AT ONCE',
+  ' UPGRADE  A RUNE WITHIN 2: +1 STRENGTH (DASH, PUSH +2). MAX 3',
+  ' REMOVE   ANY RUNE WITHIN 1',
+  'BOULDERS BLOCK THE WAY. ONLY BOMBS DESTROY THEM.',
   'NO RUNES ON BEACONS, THE CENTER OR PLAYERS.',
   'WALLS CAN NEVER SEAL OFF A BEACON.',
   'RUNES HIT BOTH PLAYERS. FROZEN = NO MOVING.',
 ];
 const HELPD = {
-  Bomb: 'HIDDEN 6-HEX ZONE. FREEZES WHOEVER WALKS IN',
+  Bomb: 'HIDDEN 6-HEX ZONE. FREEZES WHOEVER WALKS IN AND SMASHES BOULDERS',
   Dash: '+2 PLUS STRENGTH EXTRA STEPS',
-  Push: 'SHOVES YOU ALONG ITS ARROW. YOU CHOOSE THE WAY',
+  Push: 'SHOVES YOU STRENGTH HEXES (2, +2 PER UPGRADE). PLACE 2 AT ONCE',
   Teleport: 'JUMP TO ANOTHER ONE, + STRENGTH STEPS',
   Wall: 'BLOCKS MOVEMENT. UP TO 3 PER PLACEMENT',
-  Grab: 'PLACED 4+ AWAY. STEPPING ON IT SLOWS THE OTHER PLAYER BY STRENGTH',
+  Grab: 'PLACED 4+ AWAY. STEP ON IT: THE OTHER PLAYER MOVES 1 LESS FOR STRENGTH TURNS',
   Return: 'GO TO CENTER. MORE STRENGTH = FASTER RECHARGE',
 };
 function drawHelp() {
@@ -903,13 +928,45 @@ function drawHelp() {
 
 function drawOver() {
   const w = S.over.w, win = w === human, col = w === null ? PAL.s : win ? PAL.l : PAL.r;
-  const bw = 210, bh = 74, x = L.bx + Math.floor((BW - bw) / 2), y = L.by + Math.floor((BH - bh) / 2);
+  const learn = mode === 'bot' && game.stat;
+  const bw = 230, bh = learn ? 92 : 74, x = L.bx + Math.floor((BW - bw) / 2), y = L.by + Math.floor((BH - bh) / 2);
   px1(x, y, bw, bh, col); px1(x + 2, y + 2, bw - 4, bh - 4, PAL.k);
   const t = w === null ? 'TIE' : win ? 'YOU WIN' : 'YOU LOSE';
   text(g, t, x + Math.floor((bw - tw(t, 3)) / 2), y + 10, col, 3);
   const why = S.over.why.toUpperCase();
   text(g, why, x + Math.floor((bw - tw(why)) / 2), y + 36, PAL.s);
-  button(mode === 'bot' ? 'PLAY AGAIN' : 'REMATCH', x + Math.floor((bw - 72) / 2), y + 50, 72, 16, newGameButton);
+  if (learn) { const m = 'BOT LEARNED FROM THIS GAME (' + game.stat.games + ' TOTAL)'; text(g, m, x + Math.floor((bw - tw(m)) / 2), y + 50, PAL.y); }
+  button(mode === 'bot' ? 'PLAY AGAIN' : 'REMATCH', x + Math.floor((bw - 72) / 2), y + (learn ? 68 : 50), 72, 16, newGameButton);
+}
+
+// ---------- training the bot by self-play ----------
+
+const tr = { running: false, s: null, rec: [], last: 0, games: 0, c: 0, r: 0, t: 0, turn: 0, loss: 0 };
+function startTrain() {
+  if (!window.Brain) return;
+  mode = 'bot'; screen = 'train'; tr.running = true; tr.s = null; tr.games = tr.c = tr.r = tr.t = 0;
+  setTimeout(trainStep, 30);
+}
+function trainStep() {
+  if (!tr.running || screen !== 'train') { tr.running = false; return; }
+  if (!tr.s) { tr.s = T.newState(); tr.rec = []; tr.last = 0; }
+  const s = tr.s;
+  if (!s.moving && !Object.values(T.avail(s)).some(Boolean)) T.pass(s);
+  else {
+    const who = s.turn, ops = T.botPlan(s, { noise: 50 });      // lots of jitter so games differ
+    for (const op of ops) { if (s.over || s.turn !== who) break; T.applyOp(s, op); }
+    if (!s.over && s.turn === who) T.stopMove(s);
+  }
+  if (s.n !== tr.last) { tr.last = s.n; tr.rec.push(Brain.snap(s, T.other(s.turn))); }
+  else if (s.over && s.over.w !== null && tr.rec.length) tr.rec.push(Brain.snap(s, s.turn));
+  tr.turn = s.n;
+  if (s.over) {
+    const st = Brain.finish(tr.rec, s.over, null);
+    tr.games++; tr.loss = st ? st.loss : tr.loss;
+    if (s.over.w === 'C') tr.c++; else if (s.over.w === 'R') tr.r++; else tr.t++;
+    tr.s = null;
+  }
+  setTimeout(trainStep, 0);
 }
 
 // ---------- title and online screens ----------
@@ -928,8 +985,19 @@ function drawScreen(t) {
     button('PLAY VS BOT', bx, 124, bw, 22, () => { mode = 'bot'; resetGame(); }, '', 2);
     button('HOST ONLINE GAME', bx, 154, bw, 22, hostGame, '', 2);
     button('JOIN ONLINE GAME', bx, 184, bw, 22, () => { net.input = ''; screen = 'join'; }, '', 2);
-    line('ONLINE IS PEER TO PEER: NO ACCOUNT, NO SERVER.', 224, PAL.d);
-    line('HOST SHARES A 5-LETTER CODE OR LINK.', 235, PAL.d);
+    button('TRAIN THE BOT', bx, 214, bw, 22, startTrain, '', 2);
+    if (window.Brain) line('THE BOT HAS LEARNED FROM ' + Brain.games + ' GAMES (TRUSTS ITS MODEL ' + Math.round(Brain.weight() / 0.6 * 100) + '%)', 250, PAL.y);
+    line('IT LEARNS FROM EVERY GAME YOU PLAY AGAINST IT.', 261, PAL.d);
+    line('ONLINE IS PEER TO PEER: NO ACCOUNT, NO SERVER.', 280, PAL.d);
+  } else if (screen === 'train') {
+    line('BOT SELF-PLAY', 100, PAL.s, 2);
+    line('THE BOT PLAYS ITSELF AND LEARNS FROM EVERY RESULT.', 122, PAL.d);
+    line('ONE GAME TAKES A FEW SECONDS. LEAVE IT RUNNING.', 133, PAL.d);
+    const rows = [['GAMES THIS SESSION', tr.games], ['CHASER WINS', tr.c], ['RUNNER WINS', tr.r], ['TIES', tr.t], ['CURRENT GAME TURN', tr.turn],
+      ['TOTAL GAMES LEARNED', Brain.games], ['MODEL TRUST', Math.round(Brain.weight() / 0.6 * 100) + '%'], ['LAST TRAINING ERROR', Brain.games ? Brain.loss.toFixed(3) : '-']];
+    rows.forEach((r, i) => { text(g, r[0], cx - 110, 156 + i * 12, PAL.s); text(g, String(r[1]), cx + 70, 156 + i * 12, PAL.w); });
+    button('STOP AND GO BACK', bx, 266, bw, 20, toMenu, '', 1);
+    button('FORGET EVERYTHING', bx, 292, bw, 16, () => { Brain.reset(); tr.games = tr.c = tr.r = tr.t = 0; }, '', 1);
   } else if (screen === 'host') {
     line('YOUR ROOM CODE', 100, PAL.s);
     line(net.code, 114, PAL.y, 6);

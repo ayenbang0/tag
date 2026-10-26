@@ -2,9 +2,13 @@
 (function (root) {
 'use strict';
 
-const COLS = 25, ROWS = 25, CAP = 600, COOL = 4, MAXSTR = 4;   // strength 1 + up to 3 upgrades
+const COLS = 25, ROWS = 25, CAP = 600, COOL = 4, MAXLV = 3;   // a rune can be upgraded 3 times
 const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]; // e ne nw w sw se
 const TYPES = ['Bomb', 'Dash', 'Push', 'Teleport', 'Wall', 'Grab', 'Return'];
+
+// starting strength and the strength each upgrade adds (dash and push jump by 2)
+const baseStr = t => (t === 'Push' ? 2 : 1);
+const stepStr = t => (t === 'Dash' || t === 'Push' ? 2 : 1);
 
 const key = (q, r) => q + ',' + r;
 const dist = (a, b) => {
@@ -27,6 +31,8 @@ const HC = Math.floor(COLS / 2), HR = Math.floor(ROWS / 2);
 const CENTER = offset(HC, HR);
 const isCenter = (q, r) => q === CENTER.q && r === CENTER.r;
 const beaconIdx = (s, q, r) => s.beacons.findIndex(h => h.q === q && h.r === r);
+const rockAt = (s, q, r) => !!s.rocks[key(q, r)];
+const nbrs = h => DIRS.map(d => cellMap[key(h.q + d[0], h.r + d[1])]).filter(Boolean);
 
 // one beacon per quadrant, random, away from the starts, the center and each other
 function pickBeacons(starts) {
@@ -40,16 +46,41 @@ function pickBeacons(starts) {
   return boxes.map(b => offset((b[0] + b[1]) >> 1, (b[2] + b[3]) >> 1));
 }
 
+// scattered boulders in small clusters. both starts and every beacon stay connected.
+function genRocks(beacons, starts) {
+  const near = (h, list, d) => list.some(o => dist(h, o) <= d);
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const rocks = {}, want = 45 + Math.floor(Math.random() * 25);
+    let n = 0, guard = 0;
+    while (n < want && guard++ < 2000) {
+      let cur = cells[Math.floor(Math.random() * cells.length)];
+      const size = 1 + Math.floor(Math.random() * 4);
+      for (let i = 0; i < size && cur; i++) {
+        if (!rocks[key(cur.q, cur.r)] && !near(cur, starts, 3) && !near(cur, beacons, 1) && dist(cur, CENTER) >= 2) { rocks[key(cur.q, cur.r)] = 1; n++; }
+        const nb = nbrs(cur);
+        cur = nb[Math.floor(Math.random() * nb.length)];
+      }
+    }
+    const seen = { [key(starts[0].q, starts[0].r)]: 1 }, qu = [starts[0]];
+    for (let i = 0; i < qu.length; i++) for (const h of nbrs(qu[i])) {
+      const k = key(h.q, h.r);
+      if (!seen[k] && !rocks[k]) { seen[k] = 1; qu.push(h); }
+    }
+    if (seen[key(starts[1].q, starts[1].r)] && beacons.every(b => seen[key(b.q, b.r)])) return rocks;
+  }
+  return {};
+}
+
 // ---------- state ----------
 
 function newState() {
-  const rs = offset(0, HR), cs = offset(COLS - 1, HR);
+  const rs = offset(0, HR), cs = offset(COLS - 1, HR), beacons = pickBeacons([rs, cs]);
   const s = {
     turn: 'R', n: 0, steps: 0, moving: false, noMove: false, slow: 0, over: null, passes: 0, nid: 1,
-    sim: false, hist: {}, flash: null, log: [], beacons: pickBeacons([rs, cs]),
+    sim: false, hist: {}, flash: null, log: [], beacons, rocks: genRocks(beacons, [rs, cs]),
     p: {
-      R: { q: rs.q, r: rs.r, f: 0, frozen: 0, grab: 0, v: [0, 0, 0, 0] },
-      C: { q: cs.q, r: cs.r, f: 3, frozen: 0, grab: 0, v: null },
+      R: { q: rs.q, r: rs.r, frozen: 0, grab: 0, v: [0, 0, 0, 0] },
+      C: { q: cs.q, r: cs.r, frozen: 0, grab: 0, v: null },
     },
     runes: [],
   };
@@ -62,6 +93,7 @@ function clone(s) {
   return {
     turn: s.turn, n: s.n, steps: s.steps, moving: s.moving, noMove: s.noMove, slow: s.slow, over: s.over,
     passes: s.passes, nid: s.nid, sim: true, hist: null, flash: null, log: null, beacons: s.beacons,
+    rocks: Object.assign({}, s.rocks),
     p: { C: cp(s.p.C), R: cp(s.p.R) },
     runes: s.runes.map(r => Object.assign({}, r, { shape: r.shape && r.shape.map(h => h.slice()) })),
   };
@@ -77,12 +109,13 @@ const playerAt = (s, q, r) =>
 function startTurn(s) {
   const p = s.p[s.turn];
   s.steps = 0; s.moving = false; s.noMove = false;
-  s.slow = p.grab; p.grab = 0;      // grab penalty applies to this turn only
+  s.slow = p.grab > 0 ? 1 : 0;       // a grab costs 1 step on each of your next `strength` turns
+  if (p.grab > 0) p.grab--;
   if (p.frozen > 0) { p.frozen--; s.noMove = true; say(s, name(s.turn) + ' is frozen, cannot move'); }
 }
 
 function hash(s) {
-  return JSON.stringify([s.turn, s.p, s.runes.map(r => [r.type, r.q, r.r, r.str, r.cd, r.dir, r.owner, r.shape])]);
+  return JSON.stringify([s.turn, s.p, Object.keys(s.rocks).length, s.runes.map(r => [r.type, r.q, r.r, r.str, r.cd, r.dir, r.owner, r.shape])]);
 }
 
 function endTurn(s) {
@@ -109,7 +142,7 @@ function check(s) {
 }
 
 function canEnter(s, w, q, r) {
-  if (!cellMap[key(q, r)]) return false;
+  if (!cellMap[key(q, r)] || rockAt(s, q, r)) return false;
   const ru = runeAt(s, q, r);
   if (ru && ru.type === 'Wall') return false;
   const o = s.p[other(w)];
@@ -119,7 +152,7 @@ function canEnter(s, w, q, r) {
 
 // walls may never cut the runner off from a beacon it still needs
 function beaconsOpen(s, extra) {
-  const blocked = {};
+  const blocked = Object.assign({}, s.rocks);
   s.runes.forEach(r => { if (r.type === 'Wall') blocked[key(r.q, r.r)] = 1; });
   extra.forEach(h => { blocked[key(h[0], h[1])] = 1; });
   const R = s.p.R, seen = { [key(R.q, R.r)]: 1 }, qu = [R];
@@ -142,8 +175,10 @@ function trigger(s, w) {
     const b = s.runes[bi];
     p.frozen = b.str; s.steps = 0;
     s.runes.splice(bi, 1);
+    let broke = 0;
+    b.shape.forEach(h => { if (s.rocks[key(h[0], h[1])]) { delete s.rocks[key(h[0], h[1])]; broke++; } });
     flash(s, b.shape);
-    say(s, name(w) + ' sets off a bomb, frozen ' + b.str);
+    say(s, name(w) + ' sets off a bomb, frozen ' + b.str + (broke ? ', ' + broke + ' boulder' + (broke > 1 ? 's' : '') + ' destroyed' : ''));
     return;
   }
   const ru = runeAt(s, p.q, p.r);
@@ -158,7 +193,7 @@ function trigger(s, w) {
       let n = 0;
       while (n < ru.str) {
         const q = p.q + dq, r = p.r + dr, wl = runeAt(s, q, r);
-        if (!cellMap[key(q, r)] || (wl && wl.type === 'Wall') || (o.q === q && o.r === r)) break;
+        if (!cellMap[key(q, r)] || rockAt(s, q, r) || (wl && wl.type === 'Wall') || (o.q === q && o.r === r)) break;
         p.q = q; p.r = r; n++;
       }
       ru.cd = COOL;
@@ -177,7 +212,7 @@ function trigger(s, w) {
       let q = CENTER.q, r = CENTER.r;
       if (o.q === q && o.r === r && w === 'R') {
         const free = cells
-          .filter(h => !isCenter(h.q, h.r) && !playerAt(s, h.q, h.r) && !runeAt(s, h.q, h.r))
+          .filter(h => !isCenter(h.q, h.r) && !playerAt(s, h.q, h.r) && !runeAt(s, h.q, h.r) && !rockAt(s, h.q, h.r))
           .sort((a, b) => dist(a, CENTER) - dist(b, CENTER))[0];
         q = free.q; r = free.r;
       }
@@ -187,7 +222,7 @@ function trigger(s, w) {
     }
     case 'Grab':
       o.grab += ru.str; ru.cd = COOL;
-      say(s, name(other(w)) + ' loses ' + ru.str + ' movement next turn');
+      say(s, name(other(w)) + ' moves 1 less for ' + ru.str + ' turn' + (ru.str > 1 ? 's' : ''));
       break;
   }
 }
@@ -204,7 +239,7 @@ function step(s, d) {
   if (s.over || !s.moving || s.steps <= 0) return false;
   const w = s.turn, p = s.p[w], q = p.q + DIRS[d][0], r = p.r + DIRS[d][1];
   if (!canEnter(s, w, q, r)) return false;
-  p.q = q; p.r = r; p.f = d; s.steps--;
+  p.q = q; p.r = r; s.steps--;
   if (!check(s)) { trigger(s, w); check(s); }
   if (!s.over && s.steps <= 0) endTurn(s);
   return true;
@@ -218,7 +253,7 @@ function placeOk(s, type, q, r) {
   if (!cellMap[key(q, r)]) return false;
   const d = dist(s.p[w], { q, r });
   if (type === 'Grab' ? d < 4 : d > 2) return false;
-  if (beaconIdx(s, q, r) >= 0 || isCenter(q, r) || runeAt(s, q, r) || playerAt(s, q, r)) return false;
+  if (beaconIdx(s, q, r) >= 0 || isCenter(q, r) || rockAt(s, q, r) || runeAt(s, q, r) || playerAt(s, q, r)) return false;
   if (type === 'Bomb' && s.runes.some(x => x.type === 'Bomb' && x.owner === w)) return false;
   return true;
 }
@@ -240,7 +275,7 @@ const dirOk = d => Number.isInteger(d) && d >= 0 && d < 6;
 
 // a bomb and anything overlapping it are both destroyed
 function addRune(s, rn) {
-  rn.id = s.nid++; rn.cd = 0;
+  rn.id = s.nid++; rn.cd = 0; rn.lv = 0; rn.str = baseStr(rn.type);
   if (rn.type === 'Bomb') {
     const hit = s.runes.filter(x => rn.shape.some(h => h[0] === x.q && h[1] === x.r));
     if (hit.length) {
@@ -277,62 +312,63 @@ function placeWalls(s, hexes) {
   if (s.over || s.moving || !wallsOk(s, hexes)) return false;
   const w = s.turn;
   say(s, name(w) + ' places ' + hexes.length + ' wall' + (hexes.length > 1 ? 's' : ''));
-  hexes.forEach(h => addRune(s, { type: 'Wall', q: h[0], r: h[1], str: 1, owner: w, dir: s.p[w].f, shape: null }));
+  hexes.forEach(h => addRune(s, { type: 'Wall', q: h[0], r: h[1], owner: w, dir: 0, shape: null }));
   s.passes = 0; endTurn(s);
   return true;
 }
 
-// opt: { shape } for a bomb, { dir } for a push
+// one push action puts down 1-2 pushes, each with its own direction: [{ q, r, dir }]
+function pushesOk(s, list) {
+  if (!Array.isArray(list) || list.length < 1 || list.length > 2) return false;
+  const seen = {};
+  for (const h of list) {
+    if (!h || !dirOk(h.dir)) return false;
+    const k = key(h.q, h.r);
+    if (seen[k] || !placeOk(s, 'Push', h.q, h.r)) return false;
+    seen[k] = 1;
+  }
+  return true;
+}
+
+function placePushes(s, list) {
+  if (s.over || s.moving || !pushesOk(s, list)) return false;
+  const w = s.turn;
+  say(s, name(w) + ' places ' + list.length + ' push' + (list.length > 1 ? 'es' : ''));
+  list.forEach(h => addRune(s, { type: 'Push', q: h.q, r: h.r, owner: w, dir: h.dir, shape: null }));
+  s.passes = 0; endTurn(s);
+  return true;
+}
+
+// opt: { shape } for a bomb, { dir } for a single push
 function place(s, type, q, r, opt) {
-  if (type === 'Wall') return placeWalls(s, [[q, r]]);
   opt = opt || {};
+  if (type === 'Wall') return placeWalls(s, [[q, r]]);
+  if (type === 'Push') return placePushes(s, [{ q, r, dir: opt.dir }]);
   if (s.over || s.moving || !placeOk(s, type, q, r)) return false;
   if (type === 'Bomb' && !shapeOk(opt.shape, q, r)) return false;
-  if (type === 'Push' && !dirOk(opt.dir)) return false;
   const w = s.turn;
   say(s, name(w) + ' places ' + type);
-  addRune(s, { type, q, r, str: 1, owner: w, dir: type === 'Push' ? opt.dir : s.p[w].f, shape: type === 'Bomb' ? opt.shape.map(h => h.slice()) : null });
+  addRune(s, { type, q, r, owner: w, dir: 0, shape: type === 'Bomb' ? opt.shape.map(h => h.slice()) : null });
   s.passes = 0; endTurn(s);
   return true;
 }
 
-function retype(s, id, type, opt) {
-  opt = opt || {};
-  if (s.over || s.moving) return false;
-  const w = s.turn, p = s.p[w], rn = s.runes.find(x => x.id === id);
-  if (!rn || dist(p, rn) > 1 || rn.type === type || type === 'Grab') return false;
-  if (type === 'Wall' && (playerAt(s, rn.q, rn.r) || !beaconsOpen(s, [[rn.q, rn.r]]))) return false;
-  if (type === 'Bomb' && (s.runes.some(x => x !== rn && x.type === 'Bomb' && x.owner === w) || !shapeOk(opt.shape, rn.q, rn.r))) return false;
-  if (type === 'Push' && !dirOk(opt.dir)) return false;
-  s.runes.splice(s.runes.indexOf(rn), 1);
-  say(s, name(w) + ' turns ' + rn.type + ' into ' + type);
-  addRune(s, {
-    type, q: rn.q, r: rn.r, str: rn.str, owner: w, dir: type === 'Push' ? opt.dir : p.f,
-    shape: type === 'Bomb' ? opt.shape.map(h => h.slice()) : null,
-  });
-  s.passes = 0; endTurn(s);
-  return true;
-}
-
+// an upgrade adds 1 strength (dash and push: 2). three upgrades at most.
 function bump(s, id) {
   if (s.over || s.moving) return false;
   const rn = s.runes.find(x => x.id === id);
-  if (!rn || dist(s.p[s.turn], rn) > 2 || rn.str >= MAXSTR) return false;
-  rn.str++;
-  say(s, name(s.turn) + ' upgrades ' + rn.type + ' to ' + (rn.str - 1) + '/3');
+  if (!rn || dist(s.p[s.turn], rn) > 2 || rn.lv >= MAXLV) return false;
+  rn.lv++; rn.str += stepStr(rn.type);
+  say(s, name(s.turn) + ' upgrades ' + rn.type + ' to ' + rn.lv + '/' + MAXLV);
   s.passes = 0; endTurn(s);
   return true;
 }
 
-const leftHex = s => {
-  const p = s.p[s.turn], d = DIRS[(p.f + 1) % 6];
-  return { q: p.q + d[0], r: p.r + d[1] };
-};
-
-function removeLeft(s) {
+// remove any rune within 1 of you (a wall loses 1 durability instead)
+function removeRune(s, id) {
   if (s.over || s.moving) return false;
-  const h = leftHex(s), rn = runeAt(s, h.q, h.r);
-  if (!rn) return false;
+  const rn = s.runes.find(x => x.id === id);
+  if (!rn || dist(s.p[s.turn], rn) > 1) return false;
   if (rn.type === 'Wall' && rn.str > 1) rn.str--;
   else s.runes.splice(s.runes.indexOf(rn), 1);
   say(s, name(s.turn) + ' removes ' + rn.type);
@@ -354,13 +390,11 @@ function placeTargets(s, type) {
 function avail(s) {
   const w = s.turn, p = s.p[w];
   const near = (n, f) => s.runes.some(r => dist(p, r) <= n && (!f || f(r)));
-  const l = leftHex(s);
   return {
     move: !s.noMove && DIRS.some(d => canEnter(s, w, p.q + d[0], p.r + d[1])),
     place: placeTargets(s).length > 0 || placeTargets(s, 'Grab').length > 0,
-    type: near(1),
-    str: near(2, r => r.str < MAXSTR),
-    remove: !!runeAt(s, l.q, l.r),
+    str: near(2, r => r.lv < MAXLV),
+    remove: near(1),
   };
 }
 
@@ -372,7 +406,7 @@ function bfs(s, from) {
     const c = qu[i], cd = d[key(c.q, c.r)];
     for (const [dq, dr] of DIRS) {
       const nq = c.q + dq, nr = c.r + dr, k = key(nq, nr);
-      if (d[k] !== undefined || !cellMap[k]) continue;
+      if (d[k] !== undefined || !cellMap[k] || s.rocks[k]) continue;
       const ru = runeAt(s, nq, nr);
       if (ru && ru.type === 'Wall') continue;
       d[k] = cd + 1; qu.push({ q: nq, r: nr });
@@ -389,6 +423,30 @@ function nearestBeacon(s, dR) {
   });
   return { d: best, c: bc };
 }
+
+// numbers describing a position from `who`'s point of view; this is what the learned model sees
+const NFEAT = 30;
+function features(s, who, dC, dR) {
+  const R = s.p.R, C = s.p.C;
+  dC = dC || bfs(s, C); dR = dR || bfs(s, R);
+  const d0 = (m, h) => (m[key(h.q, h.r)] === undefined ? 60 : m[key(h.q, h.r)]);
+  const gap = d0(dC, R);
+  const unlit = s.beacons.map((b, i) => ({ b, i })).filter(o => !R.v[o.i])
+    .map(o => ({ r: d0(dR, o.b), c: d0(dC, o.b) })).sort((a, b) => a.r - b.r);
+  const f = [who === 'R' ? 1 : -1, s.turn === who ? 1 : -1, R.v.filter(Boolean).length / 4, gap / 40, dist(C, R) / 40];
+  for (let i = 0; i < 4; i++) f.push(unlit[i] ? unlit[i].r / 40 : 0);
+  for (let i = 0; i < 4; i++) f.push(unlit[i] ? unlit[i].c / 40 : 0);
+  f.push(dist(C, CENTER) / 20, dist(R, CENTER) / 20, C.frozen / 3, R.frozen / 3, (C.grab + (s.turn === 'C' ? s.slow : 0)) / 4, (R.grab + (s.turn === 'R' ? s.slow : 0)) / 4);
+  const cnt = {}; let lvs = 0;
+  s.runes.forEach(r => { cnt[r.type] = (cnt[r.type] || 0) + 1; lvs += r.lv; });
+  TYPES.forEach(t => f.push(Math.min(4, cnt[t] || 0) / 4));
+  f.push(s.runes.length ? lvs / s.runes.length / 3 : 0);
+  f.push(gap <= 2 ? 1 : 0, gap <= 4 ? 1 : 0, Math.min(1, s.n / 200));
+  return f;
+}
+
+let BRAIN = null;      // optional learned model: { score(s, who, dC, dR) -> number }
+function setBrain(b) { BRAIN = b; }
 
 function evalState(s, who) {
   if (s.over) return s.over.w === who ? 1e6 : s.over.w ? -1e6 : 0;
@@ -407,6 +465,7 @@ function evalState(s, who) {
     if (tb.c && dC[key(tb.c.q, tb.c.r)] !== undefined) sc -= Math.min(dC[key(tb.c.q, tb.c.r)], 40) * 9;
     s.beacons.forEach((c, i) => { if (!R.v[i]) sc += Math.min(dR[key(c.q, c.r)] === undefined ? 15 : dR[key(c.q, c.r)], 15) * 2; });
   }
+  if (BRAIN) sc += BRAIN.score(s, who, dC, dR);
   return sc;
 }
 
@@ -423,7 +482,9 @@ function pickShape(s, h) {
   return [[h.q, h.r]].concat(pool.slice(0, 5).map(c => [c.q, c.r]));
 }
 
-function botPlan(s0) {
+// opt.noise: how much random jitter to add to each candidate's score (self-play uses a lot)
+function botPlan(s0, opt) {
+  const noise = (opt && opt.noise) || 8;
   const who = s0.turn, foe = other(who), base = fog(s0, who);
   const R = base.p.R, C = base.p.C;
   const dC = bfs(base, C), dR = bfs(base, R);
@@ -437,7 +498,7 @@ function botPlan(s0) {
   const goal = who === 'R' ? tgt.c : R;
 
   const cands = [];
-  const add = (ops, st, bonus) => cands.push({ ops, score: evalState(st, who) + (bonus || 0) + Math.random() * 8 });
+  const add = (ops, st, bonus) => cands.push({ ops, score: evalState(st, who) + (bonus || 0) + Math.random() * noise });
 
   let budget = 500;
   (function dfs(st, ops) {
@@ -462,17 +523,17 @@ function botPlan(s0) {
         let b = 0;
         if (mine(k) && (t === 'Dash' || (t === 'Teleport' && pairs > 0))) b += 28;
         if (theirs(k) && t === 'Bomb') b += 26;
-        const opt = t === 'Bomb' ? { shape: pickShape(base, h) } : {};
+        const o = t === 'Bomb' ? { shape: pickShape(base, h) } : {};
         const c = clone(base);
-        place(c, t, h.q, h.r, opt);
-        add([{ k: 'place', t, q: h.q, r: h.r, opt }], c, b);
+        place(c, t, h.q, h.r, o);
+        add([{ k: 'place', t, q: h.q, r: h.r, opt: o }], c, b);
       }
       if (mine(k) && goal) {
         let bd = 0, bs = 1e9;
         DIRS.forEach((v, d) => { const s2 = dist({ q: h.q + v[0], r: h.r + v[1] }, goal); if (s2 < bs) { bs = s2; bd = d; } });
-        const opt = { dir: bd }, c = clone(base);
-        place(c, 'Push', h.q, h.r, opt);
-        add([{ k: 'place', t: 'Push', q: h.q, r: h.r, opt }], c, 22);
+        const list = [{ q: h.q, r: h.r, dir: bd }], c = clone(base);
+        placePushes(c, list);
+        add([{ k: 'pushes', list }], c, 22);
       }
     }
     const wv = near.filter(h => wallsOk(base, [[h.q, h.r]]));
@@ -495,18 +556,18 @@ function botPlan(s0) {
     });
   }
   for (const rn of base.runes) {
-    if (dist(base.p[who], rn) > 2 || rn.str >= MAXSTR) continue;
+    if (dist(base.p[who], rn) > 2 || rn.lv >= MAXLV) continue;
     let b = 0;
     if (rn.owner === who && ((mine(key(rn.q, rn.r)) && rn.type === 'Dash') || (theirs(key(rn.q, rn.r)) && rn.type === 'Wall'))) b = 6;
     const c = clone(base);
     bump(c, rn.id);
     add([{ k: 'bump', id: rn.id }], c, b);
   }
-  if (avail(base).remove) {
-    const l = leftHex(base), rn = runeAt(base, l.q, l.r);
+  for (const rn of base.runes) {
+    if (dist(base.p[who], rn) > 1) continue;
     const c = clone(base);
-    removeLeft(c);
-    add([{ k: 'remove' }], c, rn.owner === foe && mine(key(rn.q, rn.r)) && rn.type !== 'Dash' ? 15 : 0);
+    removeRune(c, rn.id);
+    add([{ k: 'remove', id: rn.id }], c, rn.owner === foe && mine(key(rn.q, rn.r)) && rn.type !== 'Dash' ? 15 : 0);
   }
   if (!cands.length) return [{ k: 'pass' }];
   cands.sort((a, b) => b.score - a.score);
@@ -519,16 +580,16 @@ function applyOp(s, op) {
     case 'stop': return stopMove(s);
     case 'place': return place(s, op.t, op.q, op.r, op.opt);
     case 'walls': return placeWalls(s, op.hexes);
-    case 'retype': return retype(s, op.id, op.t, op.opt);
+    case 'pushes': return placePushes(s, op.list);
     case 'bump': return bump(s, op.id);
-    case 'remove': return removeLeft(s);
+    case 'remove': return removeRune(s, op.id);
     case 'pass': return pass(s);
   }
 }
 
 root.Tag = {
-  COLS, ROWS, MAXSTR, DIRS, TYPES, CENTER, cells, cellMap,
-  key, dist, name, other, newState, beginMove, step, stopMove, place, placeWalls, wallsOk, retype, bump, removeLeft, pass,
-  avail, placeOk, placeTargets, shapeOk, beaconsOpen, leftHex, runeAt, playerAt, canEnter, botPlan, applyOp,
+  COLS, ROWS, MAXLV, NFEAT, DIRS, TYPES, CENTER, cells, cellMap,
+  key, dist, name, other, newState, beginMove, step, stopMove, place, placeWalls, wallsOk, placePushes, pushesOk, bump, removeRune, pass,
+  avail, placeOk, placeTargets, shapeOk, beaconsOpen, runeAt, rockAt, playerAt, canEnter, botPlan, applyOp, features, bfs, setBrain,
 };
 })(typeof window !== 'undefined' ? window : globalThis);
