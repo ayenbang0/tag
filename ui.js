@@ -10,21 +10,17 @@ const PAL = {
   k: '#1a1c2c', p: '#5d275d', r: '#b13e53', o: '#ef7d57', y: '#ffcd75', l: '#a7f070', g: '#38b764', t: '#257179',
   n: '#29366f', b: '#3b5dc9', c: '#41a6f6', a: '#73eff7', w: '#f4f4f4', s: '#94b0c2', d: '#566c86', e: '#333c57',
 };
-const RC = { Bomb: PAL.o, Dash: PAL.y, Push: PAL.l, Teleport: PAL.a, Wall: PAL.s, Grab: PAL.r, Return: PAL.c };
+const RC = { Dash: PAL.y, Push: PAL.l, Teleport: PAL.a, Wall: PAL.s };
 const PC = { C: PAL.r, R: PAL.a };
-const ZONE = '#9b5fc0', ICE = PAL.a;
 
 const SHORT = {
-  Bomb: 'HIDDEN 6-HEX ZONE, FREEZES WHOEVER WALKS IN AND SMASHES BOULDERS. ONE EACH',
-  Dash: '+2 PLUS STRENGTH EXTRA STEPS. EACH UPGRADE ADDS 2',
-  Push: 'SHOVES YOU STRENGTH HEXES. PLACE 2, EACH WITH A DIRECTION. UPGRADES ADD 2',
+  Dash: '+2 PLUS STRENGTH EXTRA STEPS. PLACE WITHIN 3. EACH UPGRADE ADDS 2',
+  Push: 'SHOVES YOU STRENGTH HEXES, TRIGGERING RUNES YOU LAND ON. PLACE WITHIN 3, 2 AT A TIME, EACH WITH A DIRECTION. UPGRADES ADD 2',
   Teleport: 'JUMP TO ANOTHER TELEPORT, + STRENGTH STEPS',
   Wall: 'BLOCKS MOVEMENT. UP TO 3 PER PLACEMENT. NEVER SEALS A BEACON',
-  Grab: 'PLACE 4+ AWAY. STEP ON IT: THE OTHER PLAYER MOVES 1 LESS FOR STRENGTH TURNS',
-  Return: 'GO TO THE CENTER. MORE STRENGTH = FASTER RECHARGE',
 };
 const ACT = {
-  move: 'MOVE UP TO 2 STEPS', place: 'PLACE A RUNE WITHIN 2', str: 'UPGRADE A RUNE WITHIN 2 (MAX 3 TIMES)',
+  move: 'MOVE UP TO 2 STEPS', place: 'PLACE A RUNE WITHIN 2 (DASH AND PUSH 3)', str: 'UPGRADE A RUNE WITHIN 2 (MAX 3 TIMES)',
   remove: 'REMOVE A RUNE WITHIN 1', end: 'END MOVE',
 };
 const ACOL = { move: PAL.l, place: PAL.y, str: PAL.c, remove: PAL.r, end: PAL.s };
@@ -128,9 +124,6 @@ SP.R = art([
   '...kkkkkk...', '..kbbbbbbk..', '.kbbccccbbk.', '.kbccccccbk.', '.kbckcckcbk.', '.kbccccccbk.',
   '..kbbbbbbk..', '.kbbwwwwbbk.', '.kbbbbbbbbk.', '..kbbkkbbk..', '..kookkook..', '...kk..kk...']);
 
-SP.rune.Bomb = art([
-  '........y...', '.......yoy..', '.......ko...', '....kkkk....', '...kddddk...', '..kdwwddek..',
-  '..kdwddddk..', '..kddddddk..', '..kddddddk..', '...kddddk...', '....kkkk....'], false);
 SP.rune.Dash = art([
   '.......yyy..', '......yyy...', '.....yyy....', '....yyyyyy..', '...yyyyyy...', '......yyy...',
   '.....yyy....', '....yyy.....', '...yyy......', '..yy........'], true);
@@ -145,12 +138,6 @@ SP.rune.Wall = outlined(fromFn(14, 11, (i, j) => {
   if (((x + (Math.floor(y / 3) % 2) * 3) % 6) === 5) return PAL.d;
   return y % 3 === 0 ? PAL.w : PAL.s;
 }));
-SP.rune.Grab = art([
-  '.rr.rr.rr...', '.rr.rr.rr...', '.rr.rr.rr...', '.rrrrrrrrr..', '.rrrrrrrrrr.', '.rrrrrrrrrr.',
-  '..rrrrrrrr..', '...rrrrrr...', '....rrrr....'], true);
-SP.rune.Return = art([
-  '.....cc.....', '....cccc....', '...cccccc...', '..cccccccc..', '.cccccccccc.', '..wwwwwwww..',
-  '..wwwbbwww..', '..wwwbbwww..', '..wwwbbwww..'], true);
 for (let d = 0; d < 6; d++) {
   const a = -d * Math.PI / 3, c = mk(14, 14), x = c.getContext('2d');
   x.fillStyle = PAL.l;
@@ -261,14 +248,14 @@ function hexAt(nx, ny) {
 
 let S = null, human = 'R', mode = 'bot', screen = 'menu', busy = false, ui = null;
 const M = { x: -1, y: -1 };
-const A = { pl: {}, known: {}, pops: {}, ghosts: [], rip: [], parts: [], prevHex: {}, prevV: [0, 0, 0, 0], flash: null, rocks: {} };
+const A = { pl: {}, known: {}, pops: {}, ghosts: [], rip: [], parts: [], prevHex: {}, prevV: [0, 0, 0, 0], rocks: {} };
 const game = { rec: [], lastN: 0, learned: false, stat: null };
 const now = () => performance.now();
 const newUi = () => ({ mode: null, type: 'Dash', pend: null, menu: null, menuT: 0, help: false, tip: '', walls: null, pushes: null });
 ui = newUi();
 
 function resetAnim() {
-  A.known = {}; A.pops = {}; A.ghosts = []; A.rip = []; A.parts = []; A.flash = null; A.prevV = [0, 0, 0, 0]; A.rocks = Object.assign({}, S.rocks);
+  A.known = {}; A.pops = {}; A.ghosts = []; A.rip = []; A.parts = []; A.prevV = [0, 0, 0, 0]; A.rocks = Object.assign({}, S.rocks);
   game.rec = []; game.lastN = 0; game.learned = false; game.stat = null;
   ['C', 'R'].forEach(w => { const c = hc(S.p[w]); A.pl[w] = { x: c.x, y: c.y }; A.prevHex[w] = { q: S.p[w].q, r: S.p[w].r }; });
 }
@@ -302,7 +289,6 @@ function sync() {
     if (!ids[id]) {
       const k = A.known[id];
       A.ghosts.push({ r: k, t });
-      if (k.type === 'Bomb') { ripple(k, PAL.o, 38, 700); burst(k, [PAL.o, PAL.y, PAL.r, PAL.w], 16, 70, 600); }
       delete A.known[id];
     }
   });
@@ -327,7 +313,6 @@ function sync() {
     if (!S.rocks[k]) { const [q, r] = k.split(',').map(Number); burst({ q, r }, [PAL.s, PAL.d, PAL.w], 12, 55, 550); ripple({ q, r }, PAL.s, 18, 450); }
   });
   A.rocks = Object.assign({}, S.rocks);
-  if (S.flash && S.flash !== A.flash) A.flash = S.flash;
 }
 
 // the bot learns from every game it plays against a person (see brain.js)
@@ -383,8 +368,7 @@ function cancel() {
   if (screen === 'game') {
     if (ui.help) { ui.help = false; return; }
     if (!mine() || S.moving) return;
-    if (ui.mode === 'shape') ui.mode = 'place';
-    else if (ui.mode === 'dir') ui.mode = ui.pushes && ui.pushes.length ? 'pushes' : 'place';
+    if (ui.mode === 'dir') ui.mode = ui.pushes && ui.pushes.length ? 'pushes' : 'place';
     else if (ui.mode === 'walls') { ui.mode = 'place'; ui.walls = null; }
     else if (ui.mode === 'pushes') { ui.mode = 'place'; ui.pushes = null; }
     else ui.mode = null;
@@ -395,14 +379,12 @@ function cancel() {
 function boardClick(h) {
   const p = S.p[human], m = S.moving ? 'move' : ui.mode;
   if (m === 'move') {
-    if (S.noMove && !S.moving) return;
     const d = T.DIRS.findIndex(v => p.q + v[0] === h.q && p.r + v[1] === h.r);
     if (d < 0 || !T.canEnter(S, human, h.q, h.r)) return;
     doOp({ k: 'step', d });
   } else if (m === 'place') {
     if (!T.placeOk(S, ui.type, h.q, h.r)) return;
-    if (ui.type === 'Wall') { if (T.wallsOk(S, [[h.q, h.r]])) { ui.walls = [[h.q, h.r]]; ui.mode = 'walls'; } }
-    else if (ui.type === 'Bomb') { ui.pend = { q: h.q, r: h.r, shape: [[h.q, h.r]] }; ui.mode = 'shape'; }
+    if (ui.type === 'Wall') { if (T.wallsOk(S, [[h.q, h.r]])) { ui.walls = [[h.q, h.r]]; ui.mode = 'walls'; if (S.setup) confirmWalls(); } }
     else if (ui.type === 'Push') { ui.pushes = []; ui.pend = { q: h.q, r: h.r }; ui.mode = 'dir'; }
     else doOp({ k: 'place', t: ui.type, q: h.q, r: h.r, opt: {} });
   } else if (m === 'walls') {
@@ -421,19 +403,13 @@ function boardClick(h) {
     const pd = ui.pend, d = T.DIRS.findIndex(v => pd.q + v[0] === h.q && pd.r + v[1] === h.r);
     if (d < 0) return;
     ui.pushes.push({ q: pd.q, r: pd.r, dir: d }); ui.pend = null;
-    if (ui.pushes.length === 2) confirmPushes(); else ui.mode = 'pushes';
+    if (ui.pushes.length === 2 || S.setup) confirmPushes(); else ui.mode = 'pushes';
   } else if (m === 'str') {
     const rn = T.runeAt(S, h.q, h.r);
     if (rn && T.dist(p, rn) <= 2 && rn.lv < T.MAXLV) doOp({ k: 'bump', id: rn.id });
   } else if (m === 'remove') {
     const rn = T.runeAt(S, h.q, h.r);
     if (rn && T.dist(p, rn) <= 1) doOp({ k: 'remove', id: rn.id });
-  } else if (m === 'shape') {
-    const pd = ui.pend;
-    if (T.dist(h, pd) > 2 || (h.q === pd.q && h.r === pd.r)) return;
-    const i = pd.shape.findIndex(v => v[0] === h.q && v[1] === h.r);
-    if (i >= 0) pd.shape.splice(i, 1); else pd.shape.push([h.q, h.r]);
-    if (pd.shape.length === 6) doOp({ k: 'place', t: 'Bomb', q: pd.q, r: pd.r, opt: { shape: pd.shape } });
   }
 }
 function confirmWalls() { if (mine() && ui.walls && ui.walls.length) doOp({ k: 'walls', hexes: ui.walls }); }
@@ -449,10 +425,9 @@ function menuItems() {
   let items;
   if (ui.menu === 'moving') items = [{ id: 'end', tip: ACT.end, ok: true, kind: 'act' }];
   else if (ui.menu === 'rune') {
-    const hasBomb = S.runes.some(x => x.type === 'Bomb' && x.owner === human);
     items = T.TYPES.map(t => ({
       id: t, tip: t + ': ' + SHORT[t], kind: 'rune',
-      ok: !(t === 'Bomb' && hasBomb) && (t === 'Wall' ? T.placeTargets(S, 'Wall').some(h => T.wallsOk(S, [[h.q, h.r]])) : T.placeTargets(S, t).length > 0),
+      ok: (t === 'Wall' ? T.placeTargets(S, 'Wall').some(h => T.wallsOk(S, [[h.q, h.r]])) : T.placeTargets(S, t).length > 0),
     }));
   } else items = ['move', 'place', 'str', 'remove'].map(id => ({ id, tip: ACT[id], ok: !!a[id], kind: 'act' }));
   menuMemo = { key: k, items };
@@ -469,77 +444,104 @@ function onMenu(id) {
 
 function openMenu() {
   if (ui.menu) { ui.menu = null; return; }
-  ui.mode = null; ui.pend = null; ui.walls = null; ui.pushes = null; ui.menu = S.moving ? 'moving' : 'main'; ui.menuT = now();
+  ui.mode = null; ui.pend = null; ui.walls = null; ui.pushes = null; ui.menu = S.moving ? 'moving' : S.setup ? 'rune' : 'main'; ui.menuT = now();
 }
 
 // ---------- online ----------
 
 const APP_ID = 'tag-pixel-chase-v1';
-const net = { room: null, mod: null, peer: null, code: '', host: false, input: '', status: '', msg: '', sentLog: 0, copied: 0, timer: 0, acts: {} };
+// Trystero's default tracker list includes two that have dead TLS certificates, and it only picks a few of
+// them, so rooms could land on nothing but dead ones. these three answer; a peer needs just one of them.
+const TRACKERS = ['wss://open.ftorrent.com', 'wss://tracker.files.fm:7073/announce', 'wss://tracker.novage.com.ua'];
+const RETRY_MS = 9000, GIVE_UP_MS = 45000;
+const net = { room: null, mod: null, peer: null, code: '', host: false, input: '', status: '', msg: '', warn: '', sentLog: 0, copied: 0, timer: 0, retry: 0, acts: {} };
 net.send = (name, data) => {
   const a = net.acts[name];
   if (a && net.peer) { try { a.send(data, { target: net.peer }); } catch (e) { /* peer gone */ } }
 };
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const newCode = () => Array.from({ length: 5 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
-const linkFor = code => location.href.split('#')[0] + '#' + code;
+// the code travels in the query string: chat apps and redirects tend to drop a #fragment
+const linkFor = code => location.origin + location.pathname + '?room=' + code;
+const codeFromUrl = () => {
+  const m = (location.search + ' ' + location.hash).toUpperCase().match(/(?:ROOM=|#)([A-Z0-9]{5})\b/);
+  return m ? m[1] : '';
+};
 const guestRole = () => T.other(human);
 
 const unpackRocks = list => { const o = {}; (list || []).forEach(k => { o[k] = 1; }); return o; };
 
-function snapFor(role) {
+function snapFor() {
   const o = {};
-  ['turn', 'n', 'steps', 'moving', 'noMove', 'slow', 'over', 'passes', 'nid', 'beacons', 'p', 'flash'].forEach(k => { o[k] = S[k]; });
-  // the other side never learns the shape of your bomb zones
-  o.runes = S.runes.map(r => (r.type === 'Bomb' && r.owner !== role ? Object.assign({}, r, { shape: [[r.q, r.r]] }) : r));
+  ['turn', 'n', 'steps', 'moving', 'over', 'passes', 'nid', 'beacons', 'p', 'setup'].forEach(k => { o[k] = S[k]; });
+  o.runes = S.runes;
   o.rocks = Object.keys(S.rocks);
   return o;
 }
 
 function broadcast() {
   if (mode !== 'host' || !net.peer) return;
-  net.send('snap', { s: snapFor(guestRole()), lines: S.log.slice(net.sentLog) });
+  net.send('snap', { s: snapFor(), lines: S.log.slice(net.sentLog) });
   net.sentLog = S.log.length;
 }
 
 function leaveRoom() {
   try { if (net.room) net.room.leave(); } catch (e) { /* ignore */ }
-  net.room = null; net.peer = null; net.acts = {}; clearTimeout(net.timer);
+  net.room = null; net.peer = null; net.acts = {}; clearTimeout(net.timer); clearTimeout(net.retry);
 }
-function toMenu() { tr.running = false; leaveRoom(); mode = 'bot'; screen = 'menu'; S = null; busy = false; history.replaceState(null, '', location.pathname + location.search); }
+function toMenu() { tr.running = false; leaveRoom(); mode = 'bot'; screen = 'menu'; S = null; busy = false; history.replaceState(null, '', location.pathname); }
 function fail(msg) { leaveRoom(); net.msg = msg; screen = 'msg'; }
 
 async function openRoom(code, asHost) {
-  net.host = asHost; net.code = code; net.status = 'CONNECTING';
+  leaveRoom();
+  net.host = asHost; net.code = code; net.status = 'CONNECTING'; net.warn = '';
   screen = asHost ? 'host' : 'wait';
   let m;
   try { net.mod = net.mod || await import('./vendor/trystero-torrent.js'); m = net.mod; }
   catch (e) { fail('ONLINE PLAY NEEDS THE GAME TO BE SERVED OVER HTTP(S), E.G. GITHUB PAGES. IT CANNOT RUN FROM A FILE.'); return; }
-  leaveRoom();
-  let room;
-  try { room = m.joinRoom({ appId: APP_ID }, 'tag-' + code); }
-  catch (e) { fail('COULD NOT OPEN A ROOM: ' + String(e && e.message || e).slice(0, 60)); return; }
-  net.room = room;
-  const acts = { op: room.makeAction('op'), snap: room.makeAction('snap'), start: room.makeAction('start'), rematch: room.makeAction('rematch') };
-  net.acts = acts;
-  acts.op.onMessage = (d, meta) => { if (asHost && meta.peerId === net.peer) onRemoteOp(d); };
-  acts.snap.onMessage = d => { if (!asHost) onSnap(d); };
-  acts.start.onMessage = d => { if (!asHost) onStart(d); };
-  acts.rematch.onMessage = (d, meta) => { if (asHost && meta.peerId === net.peer) startHosted(); };
-  room.onPeerJoin = id => {
-    if (net.peer) return;                      // two players only
-    net.peer = id;
-    if (asHost) startHosted(); else net.status = 'WAITING FOR THE HOST';
+  if (net.code !== code || screen === 'menu') return;      // cancelled while the module loaded
+  const t0 = Date.now();
+
+  // a guest that has not met the host after a few seconds re-announces itself under a fresh id;
+  // that is much quicker than waiting for the next tracker round
+  const connect = () => {
+    let room;
+    try { room = m.joinRoom({ appId: APP_ID, relayConfig: { urls: TRACKERS }}, 'tag-' + code, {
+      onJoinError: d => { net.warn = String((d && d.error) || 'CONNECTION FAILED').slice(0, 90); },
+    }); }
+    catch (e) { fail('COULD NOT OPEN A ROOM: ' + String(e && e.message || e).slice(0, 60)); return; }
+    net.room = room;
+    const acts = { op: room.makeAction('op'), snap: room.makeAction('snap'), start: room.makeAction('start'), rematch: room.makeAction('rematch') };
+    net.acts = acts;
+    acts.op.onMessage = (d, meta) => { if (asHost && meta.peerId === net.peer) onRemoteOp(d); };
+    acts.snap.onMessage = d => { if (!asHost) onSnap(d); };
+    acts.start.onMessage = d => { if (!asHost) onStart(d); };
+    acts.rematch.onMessage = (d, meta) => { if (asHost && meta.peerId === net.peer) startHosted(); };
+    room.onPeerJoin = id => {
+      if (net.peer) return;                      // two players only
+      net.peer = id; net.warn = '';
+      clearTimeout(net.retry); clearTimeout(net.timer);
+      if (asHost) startHosted(); else net.status = 'WAITING FOR THE HOST';
+    };
+    room.onPeerLeave = id => {
+      if (id !== net.peer) return;
+      net.peer = null;
+      if (screen === 'game' && S && !S.over) { net.msg = 'YOUR OPPONENT LEFT THE GAME.'; screen = 'msg'; }
+      else if (screen === 'game') net.status = 'OPPONENT LEFT';
+      else if (asHost) net.status = 'WAITING FOR OPPONENT';
+    };
+    net.status = asHost ? 'WAITING FOR OPPONENT' : 'LOOKING FOR THE GAME';
+    if (!asHost) {
+      net.retry = setTimeout(() => {
+        if (screen !== 'wait' || net.peer || net.code !== code) return;
+        if (Date.now() - t0 > GIVE_UP_MS) { fail('NO GAME FOUND FOR CODE ' + code + '. CHECK THE CODE, AND THAT THE HOST IS STILL WAITING.' + (net.warn ? ' (' + net.warn + ')' : '')); return; }
+        try { room.leave(); } catch (e) { /* ignore */ }
+        net.room = null; net.acts = {};
+        connect();
+      }, RETRY_MS);
+    }
   };
-  room.onPeerLeave = id => {
-    if (id !== net.peer) return;
-    net.peer = null;
-    if (screen === 'game' && S && !S.over) { net.msg = 'YOUR OPPONENT LEFT THE GAME.'; screen = 'msg'; }
-    else if (screen === 'game') net.status = 'OPPONENT LEFT';
-    else if (asHost) net.status = 'WAITING FOR OPPONENT';
-  };
-  net.status = asHost ? 'WAITING FOR OPPONENT' : 'LOOKING FOR THE GAME';
-  if (!asHost) net.timer = setTimeout(() => { if (screen === 'wait' && !net.peer) fail('NO GAME FOUND FOR CODE ' + code + '. CHECK THE CODE AND TRY AGAIN.'); }, 40000);
+  connect();
 }
 
 function hostGame() { mode = 'host'; openRoom(newCode(), true); }
@@ -549,7 +551,7 @@ function startHosted() {
   mode = 'host';
   resetGame();
   net.sentLog = S.log.length;
-  net.send('start', { role: guestRole(), snap: snapFor(guestRole()), lines: S.log.slice() });
+  net.send('start', { role: guestRole(), snap: snapFor(), lines: S.log.slice() });
 }
 function onStart(d) {
   mode = 'guest'; human = d.role;
@@ -598,7 +600,7 @@ cv.addEventListener('click', e => {
   const h = hexAt(p.x, p.y);
   if (!h || !mine()) return;
   const me = S.p[human];
-  if (h.q === me.q && h.r === me.r && ui.mode !== 'shape' && ui.mode !== 'walls' && ui.mode !== 'dir') { openMenu(); return; }
+  if (h.q === me.q && h.r === me.r && ui.mode !== 'walls' && ui.mode !== 'dir') { openMenu(); return; }
   if (ui.menu) { ui.menu = null; return; }
   boardClick(h);
 });
@@ -619,8 +621,8 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('paste', e => {
   if (screen !== 'join') return;
-  const t = ((e.clipboardData && e.clipboardData.getData('text')) || '').toUpperCase();
-  const m = t.match(/#?([A-Z0-9]{5})\s*$/);
+  const t = ((e.clipboardData && e.clipboardData.getData('text')) || '').toUpperCase().trim();
+  const m = t.match(/ROOM=([A-Z0-9]{5})/) || t.match(/#([A-Z0-9]{5})$/) || t.match(/^([A-Z0-9]{5})$/);
   if (m) net.input = m[1];
 });
 
@@ -667,12 +669,11 @@ function highlightCells() {
   else if (m === 'dir') T.DIRS.forEach(d => { const h = T.cellMap[T.key(ui.pend.q + d[0], ui.pend.r + d[1])]; if (h) add(h); });
   else if (m === 'str') S.runes.filter(r => T.dist(p, r) <= 2 && r.lv < T.MAXLV).forEach(add);
   else if (m === 'remove') S.runes.filter(r => T.dist(p, r) <= 1).forEach(add);
-  else if (m === 'shape') T.cells.filter(h => T.dist(h, ui.pend) <= 2).forEach(add);
   return hl;
 }
 function modeColor() {
   const m = S.moving ? 'move' : ui.mode;
-  return m === 'place' ? RC[ui.type] : m === 'shape' ? ZONE : m === 'walls' ? RC.Wall : m === 'dir' || m === 'pushes' ? RC.Push : ACOL[m] || PAL.l;
+  return m === 'place' ? RC[ui.type] : m === 'walls' ? RC.Wall : m === 'dir' || m === 'pushes' ? RC.Push : ACOL[m] || PAL.l;
 }
 
 function drawRune(r, p, white, t) {
@@ -691,11 +692,10 @@ function drawRune(r, p, white, t) {
     const rows = TINY[Math.min(9, r.cd)].split('|');
     rows.forEach((row, y) => { for (let i = 0; i < 3; i++) if (row[i] === '#') px1(p.x + 3 + i, p.y - 7 + y, 1, 1, PAL.w); });
   }
-  if (r.type === 'Bomb' && r.owner === human) px1(p.x - 7, p.y - 6, 2, 2, ZONE);
 }
 
 function scene(t) {
-  const phase = Math.floor(t / 350) & 1, pulse = Math.floor(t / 250) % 4;
+  const phase = Math.floor(t / 350) & 1;
   const isBeacon = h => S.beacons.some(c => c.q === h.q && c.r === h.r);
 
   T.cells.forEach(h => {
@@ -705,25 +705,12 @@ function scene(t) {
   const ce = ctr(T.CENTER);
   [[0, 0], [0, -3], [0, 3], [-3, 0], [3, 0]].forEach(o => px1(ce.x + o[0], ce.y + o[1], 1, 1, PAL.s));
 
-  // zones
-  S.runes.forEach(r => {
-    if (r.type !== 'Bomb' || r.owner !== human) return;
-    r.shape.forEach(h => {
-      const tp = tilePos({ q: h[0], r: h[1] });
-      img(hs(ZONE, null, phase), tp.x, tp.y); img(hs(null, ZONE), tp.x, tp.y);
-    });
-  });
-  if (ui.pend && ui.pend.shape) ui.pend.shape.forEach(h => { const tp = tilePos({ q: h[0], r: h[1] }); img(hs(ZONE, ZONE), tp.x, tp.y); });
   if (ui.pushes) ui.pushes.forEach(h => { const tp = tilePos(h); img(hs(RC.Push, PAL.w, phase), tp.x, tp.y); });
   if (ui.walls) ui.walls.forEach(h => { const tp = tilePos({ q: h[0], r: h[1] }); img(hs(PAL.s, PAL.w, phase), tp.x, tp.y); });
-  if (A.flash && S.flash === A.flash && S.n - A.flash.n <= 1) A.flash.hexes.forEach(h => {
-    const tp = tilePos({ q: h[0], r: h[1] });
-    img(hs(PAL.r, PAL.o, (pulse & 1)), tp.x, tp.y);
-  });
 
-  // action highlights (a grab can go almost anywhere, so it only gets outlines)
+  // action highlights. in setup most of the board is open, so it only gets outlines
   const hl = highlightCells(), mc = modeColor();
-  const rimOnly = ui.mode === 'place' && ui.type === 'Grab';
+  const rimOnly = !!S.setup && ui.mode === 'place';
   Object.keys(hl).forEach(k => {
     const tp = tilePos(hl[k]);
     if (!rimOnly) img(hs(mc, null, phase), tp.x, tp.y);
@@ -772,11 +759,6 @@ function scene(t) {
     const d = A.pl[w], pl = S.p[w], x = L.bx + d.x, y = L.by + d.y;
     const bob = S.turn === w && !S.over && (Math.floor(t / 380) & 1) ? 1 : 0;
     px1(x - 5, y + 4, 10, 2, '#14151f');
-    if (pl.frozen || (S.turn === w && S.noMove)) {
-      ring(x, y - 1, 10, ICE, true, Math.floor(t / 120));
-      ring(x, y - 1, 9, ICE, true, Math.floor(t / 120) + 1);
-    }
-    if (pl.grab || (S.turn === w && S.slow)) ring(x, y - 1, 12, PAL.r, true, Math.floor(t / 90));
     img(SP[w], x - 7, y - 9 - bob);
   });
   if (mine() && !ui.menu && !ui.mode && !S.moving) {
@@ -822,24 +804,24 @@ function drawMenu(t) {
 
 function hintText() {
   if (S.over) return 'GAME OVER';
-  if (S.turn !== human || busy) return mode === 'bot' ? 'BOT IS THINKING...' : 'WAITING FOR YOUR OPPONENT...';
+  if (S.turn !== human || busy) return (mode === 'bot' ? 'BOT IS ' : 'OPPONENT IS ') + (S.setup ? 'PLACING RUNES...' : 'THINKING...');
   if (S.moving) return 'CLICK A NEIGHBOURING HEX (' + S.steps + ' STEP' + (S.steps === 1 ? '' : 'S') + ' LEFT). CLICK YOUR PIECE TO END THE MOVE.';
   switch (ui.mode) {
     case 'move': return 'CLICK A HIGHLIGHTED NEIGHBOUR TO STEP.';
-    case 'place': return ui.type === 'Grab' ? 'PLACE GRAB: ANY HEX AT LEAST 4 AWAY FROM YOU (OUTLINED).'
-      : ui.type === 'Wall' ? 'PLACE WALL: CLICK UP TO 3 HEXES, THEN CONFIRM.'
-      : ui.type === 'Push' ? 'PLACE PUSH: CLICK A HEX, THEN PICK ITS DIRECTION. YOU CAN PLACE 2.'
-      : 'PLACE ' + ui.type + ': CLICK A HIGHLIGHTED HEX.' + (ui.type === 'Bomb' ? ' THEN DRAW ITS ZONE.' : '');
+    case 'place':
+      if (S.setup) return 'PLACE ' + ui.type + ': ANY OUTLINED HEX, MORE THAN ' + T.SETUP_GAP + ' FROM YOUR OPPONENT.' + (ui.type === 'Push' ? ' THEN PICK ITS DIRECTION.' : '') + ' ESC TO GO BACK.';
+      return ui.type === 'Wall' ? 'PLACE WALL: CLICK UP TO 3 HEXES, THEN CONFIRM.'
+        : ui.type === 'Push' ? 'PLACE PUSH: CLICK A HEX WITHIN 3, THEN PICK ITS DIRECTION. YOU CAN PLACE 2.'
+        : 'PLACE ' + ui.type + ': CLICK A HIGHLIGHTED HEX' + (ui.type === 'Dash' ? ' (WITHIN 3).' : '.');
     case 'pushes': return 'PUSHES ' + ui.pushes.length + '/2. CLICK ANOTHER HEX FOR A SECOND PUSH (CLICK ONE AGAIN TO UNDO), THEN CONFIRM (ENTER).';
     case 'walls': return 'WALLS ' + ui.walls.length + '/3. CLICK MORE HEXES (CLICK AGAIN TO UNDO), THEN CONFIRM (ENTER).';
     case 'dir': return 'PICK THE PUSH DIRECTION: CLICK AN ARROW HEX. ESC TO GO BACK.';
-    case 'shape': return 'DRAW THE ZONE: ' + (6 - ui.pend.shape.length) + ' MORE HEX(ES) WITHIN 2 OF THE BOMB. ESC TO GO BACK.';
     case 'str': return 'CLICK A HIGHLIGHTED RUNE TO UPGRADE IT (MAX 3).';
     case 'remove': return 'CLICK A HIGHLIGHTED RUNE WITHIN 1 TO REMOVE IT.';
     default: {
       const hv = hexAt(M.x, M.y), rn = hv && T.runeAt(S, hv.q, hv.r);
       if (rn) return rn.type + ' STRENGTH ' + rn.str + ', UPGRADED ' + rn.lv + '/3' + (rn.cd ? ', RECHARGING ' + rn.cd : '') + '.';
-      return 'YOUR TURN. CLICK YOUR PIECE TO PICK AN ACTION.' + (S.noMove ? ' (FROZEN: NO MOVING)' : '');
+      return S.setup ? 'SETUP: CLICK YOUR PIECE, PICK A RUNE AND PLACE IT. ' + S.setup[human] + ' LEFT.' : 'YOUR TURN. CLICK YOUR PIECE TO PICK AN ACTION.';
     }
   }
 }
@@ -854,16 +836,12 @@ function panelA(x, y, w) {
   text(g, 'YOU: ' + T.name(human), x + 18, y + 3, PC[human]);
   y += 18;
   if (mode !== 'bot') { text(g, 'ROOM ' + net.code + (net.peer ? '' : ' (ALONE)'), x, y, PAL.d); y += 11; }
-  text(g, S.over ? 'GAME OVER' : 'TURN ' + (S.n + 1) + ' - ' + (S.turn === human ? 'YOURS' : mode === 'bot' ? 'BOT' : 'THEIRS'), x, y, PAL.s);
+  text(g, S.over ? 'GAME OVER' : (S.setup ? 'SETUP - ' : 'TURN ' + (S.n + 1) + ' - ') + (S.turn === human ? 'YOURS' : mode === 'bot' ? 'BOT' : 'THEIRS'), x, y, PAL.s);
   y += 12;
   text(g, 'BEACONS', x, y + 2, PAL.s);
   S.p.R.v.forEach((v, i) => img(v ? SP.beacon : SP.beaconOff, x + 50 + i * 15, y - 2));
   y += 15;
-  const slow = (p, w2) => p.grab + (S.turn === w2 ? S.slow : 0);
-  const fl = (p, w2) => [p.frozen ? 'FROZEN ' + p.frozen : '', slow(p, w2) ? 'SLOWED ' + slow(p, w2) : ''].filter(Boolean).join(' ') || 'OK';
-  const st = w2 => S.p[w2].frozen || slow(S.p[w2], w2) ? ICE : PAL.s;
-  text(g, 'CHASER ' + fl(S.p.C, 'C'), x, y, st('C'));
-  text(g, 'RUNNER ' + fl(S.p.R, 'R'), x, y + 10, st('R'));
+  text(g, S.setup ? 'RUNES LEFT: YOU ' + S.setup[human] + ', FOE ' + S.setup[T.other(human)] : 'CHASER VS RUNNER', x, y, PAL.s);
   return y + 24;
 }
 
@@ -894,22 +872,21 @@ const HELP = [
   'TIE: SAME POSITION 3X, NO ACTIONS, 600 TURNS.',
   'ONE ACTION PER TURN. CLICK YOUR PIECE:',
   ' MOVE     UP TO 2 STEPS',
-  ' PLACE    A RUNE WITHIN 2. UP TO 3 WALLS OR 2 PUSHES AT ONCE',
+  ' PLACE    A RUNE WITHIN 2 (DASH, PUSH: 3). 3 WALLS OR 2 PUSHES AT ONCE',
   ' UPGRADE  A RUNE WITHIN 2: +1 STRENGTH (DASH, PUSH +2). MAX 3',
   ' REMOVE   ANY RUNE WITHIN 1',
-  'BOULDERS BLOCK THE WAY. ONLY BOMBS DESTROY THEM.',
+  'BOULDERS BLOCK THE WAY.',
   'NO RUNES ON BEACONS, THE CENTER OR PLAYERS.',
   'WALLS CAN NEVER SEAL OFF A BEACON.',
-  'RUNES HIT BOTH PLAYERS. FROZEN = NO MOVING.',
+  'SETUP: DASHES AND PUSHES ARE SCATTERED AT RANDOM, THEN',
+  'EACH PLAYER PLACES 3 RUNES MORE THAN 5 HEXES FROM THE FOE.',
+  'RUNES HIT BOTH PLAYERS.',
 ];
 const HELPD = {
-  Bomb: 'HIDDEN 6-HEX ZONE. FREEZES WHOEVER WALKS IN AND SMASHES BOULDERS',
   Dash: '+2 PLUS STRENGTH EXTRA STEPS',
-  Push: 'SHOVES YOU STRENGTH HEXES (2, +2 PER UPGRADE). PLACE 2 AT ONCE',
+  Push: 'SHOVES YOU STRENGTH HEXES (2, +2 PER UPGRADE), TRIGGERING RUNES YOU PASS',
   Teleport: 'JUMP TO ANOTHER ONE, + STRENGTH STEPS',
   Wall: 'BLOCKS MOVEMENT. UP TO 3 PER PLACEMENT',
-  Grab: 'PLACED 4+ AWAY. STEP ON IT: THE OTHER PLAYER MOVES 1 LESS FOR STRENGTH TURNS',
-  Return: 'GO TO CENTER. MORE STRENGTH = FASTER RECHARGE',
 };
 function drawHelp() {
   const x = L.bx + 6, y = L.by + 6, w = BW - 12, h = BH - 12;
@@ -1007,7 +984,8 @@ function drawScreen(t) {
       try { navigator.clipboard.writeText(link); net.copied = Date.now(); } catch (e) { /* no clipboard */ }
     }, '', 2);
     line(net.status + '.'.repeat(Math.floor(t / 400) % 4), 224, PAL.l);
-    button('CANCEL', bx, 242, bw, 18, toMenu);
+    if (net.warn) wrap(net.warn, 56).slice(0, 2).forEach((l, i) => line(l, 236 + i * 10, PAL.o));
+    button('CANCEL', bx, 262, bw, 18, toMenu);
   } else if (screen === 'join') {
     line('ENTER THE ROOM CODE', 104, PAL.s);
     const bwid = 5 * 36 + 8;
@@ -1021,6 +999,7 @@ function drawScreen(t) {
     line('JOINING ROOM ' + net.code, 120, PAL.y, 2);
     line(net.status + '.'.repeat(Math.floor(t / 400) % 4), 150, PAL.l);
     line('THIS CAN TAKE A FEW SECONDS.', 166, PAL.d);
+    if (net.warn) wrap(net.warn, 56).slice(0, 2).forEach((l, i) => line(l, 178 + i * 10, PAL.o));
     button('CANCEL', bx, 200, bw, 20, toMenu);
   } else if (screen === 'msg') {
     wrap(net.msg, 44).forEach((l, i) => line(l, 130 + i * 11, PAL.o));
@@ -1055,7 +1034,8 @@ function frame(t) {
 
 window.addEventListener('resize', layout);
 layout();
-const hash = (location.hash || '').replace('#', '').toUpperCase();
-if (/^[A-Z0-9]{5}$/.test(hash)) joinGame(hash);
+const inviteCode = codeFromUrl();
+if (inviteCode) joinGame(inviteCode);
+else import('./vendor/trystero-torrent.js').then(mod => { net.mod = net.mod || mod; }).catch(() => { /* reported when someone tries to play online */ });
 requestAnimationFrame(frame);
 })();

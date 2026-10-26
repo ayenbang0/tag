@@ -5,7 +5,7 @@
 (function (root) {
 'use strict';
 const T = root.Tag;
-const H1 = 24, H2 = 12, SCALE = 900, GAMMA = 0.97, KEY = 'tag-brain-v2';
+const H1 = 24, H2 = 12, SCALE = 900, GAMMA = 0.97, KEY = 'tag-brain-v3';
 
 const arr = n => new Float64Array(n);
 function initNet() {

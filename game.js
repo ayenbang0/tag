@@ -4,7 +4,9 @@
 
 const COLS = 25, ROWS = 25, CAP = 600, COOL = 4, MAXLV = 3;   // a rune can be upgraded 3 times
 const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]; // e ne nw w sw se
-const TYPES = ['Bomb', 'Dash', 'Push', 'Teleport', 'Wall', 'Grab', 'Return'];
+const TYPES = ['Dash', 'Push', 'Teleport', 'Wall'];
+const SETUP_RUNES = 3, SETUP_GAP = 5;   // runes each player lays down before turn 1, and the no-go radius around the foe
+const reach = t => (t === 'Dash' || t === 'Push' ? 3 : 2);   // how far from yourself a rune may be placed
 
 // starting strength and the strength each upgrade adds (dash and push jump by 2)
 const baseStr = t => (t === 'Push' ? 2 : 1);
@@ -76,46 +78,59 @@ function genRocks(beacons, starts) {
 function newState() {
   const rs = offset(0, HR), cs = offset(COLS - 1, HR), beacons = pickBeacons([rs, cs]);
   const s = {
-    turn: 'R', n: 0, steps: 0, moving: false, noMove: false, slow: 0, over: null, passes: 0, nid: 1,
-    sim: false, hist: {}, flash: null, log: [], beacons, rocks: genRocks(beacons, [rs, cs]),
+    turn: 'R', n: 0, steps: 0, moving: false, over: null, passes: 0, nid: 1,
+    sim: false, hist: {}, log: [], beacons, rocks: genRocks(beacons, [rs, cs]),
+    setup: { R: SETUP_RUNES, C: SETUP_RUNES },
     p: {
-      R: { q: rs.q, r: rs.r, frozen: 0, grab: 0, v: [0, 0, 0, 0] },
-      C: { q: cs.q, r: cs.r, frozen: 0, grab: 0, v: null },
+      R: { q: rs.q, r: rs.r, v: [0, 0, 0, 0] },
+      C: { q: cs.q, r: cs.r, v: null },
     },
     runes: [],
   };
+  scatter(s);
   startTurn(s);
   return s;
+}
+
+// 4-6 dashes and 3-6 pushes lying around the board before anyone places anything
+function scatter(s) {
+  const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+  const free = cells.filter(h => beaconIdx(s, h.q, h.r) < 0 && !isCenter(h.q, h.r) && !rockAt(s, h.q, h.r) && !playerAt(s, h.q, h.r));
+  for (let i = free.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [free[i], free[j]] = [free[j], free[i]]; }
+  const put = (type, n) => {
+    for (let i = 0; i < n; i++) {
+      const h = free.pop();
+      addRune(s, { type, q: h.q, r: h.r, owner: null, dir: type === 'Push' ? rnd(0, 5) : 0 });
+    }
+  };
+  put('Dash', rnd(4, 6));
+  put('Push', rnd(3, 6));
 }
 
 function clone(s) {
   const cp = p => Object.assign({}, p, { v: p.v && p.v.slice() });
   return {
-    turn: s.turn, n: s.n, steps: s.steps, moving: s.moving, noMove: s.noMove, slow: s.slow, over: s.over,
-    passes: s.passes, nid: s.nid, sim: true, hist: null, flash: null, log: null, beacons: s.beacons,
+    turn: s.turn, n: s.n, steps: s.steps, moving: s.moving, over: s.over,
+    passes: s.passes, nid: s.nid, sim: true, hist: null, log: null, beacons: s.beacons,
+    setup: s.setup && Object.assign({}, s.setup),
     rocks: Object.assign({}, s.rocks),
     p: { C: cp(s.p.C), R: cp(s.p.R) },
-    runes: s.runes.map(r => Object.assign({}, r, { shape: r.shape && r.shape.map(h => h.slice()) })),
+    runes: s.runes.map(r => Object.assign({}, r)),
   };
 }
 
 const say = (s, m) => { if (s.log) s.log.push(m); };
-const flash = (s, hexes) => { if (!s.sim) s.flash = { n: s.n, hexes: hexes.map(h => h.slice()) }; };
 
 const runeAt = (s, q, r) => s.runes.find(x => x.q === q && x.r === r);
 const playerAt = (s, q, r) =>
   (s.p.C.q === q && s.p.C.r === r) ? 'C' : (s.p.R.q === q && s.p.R.r === r) ? 'R' : null;
 
 function startTurn(s) {
-  const p = s.p[s.turn];
-  s.steps = 0; s.moving = false; s.noMove = false;
-  s.slow = p.grab > 0 ? 1 : 0;       // a grab costs 1 step on each of your next `strength` turns
-  if (p.grab > 0) p.grab--;
-  if (p.frozen > 0) { p.frozen--; s.noMove = true; say(s, name(s.turn) + ' is frozen, cannot move'); }
+  s.steps = 0; s.moving = false;
 }
 
 function hash(s) {
-  return JSON.stringify([s.turn, s.p, Object.keys(s.rocks).length, s.runes.map(r => [r.type, r.q, r.r, r.str, r.cd, r.dir, r.owner, r.shape])]);
+  return JSON.stringify([s.turn, s.p, Object.keys(s.rocks).length, s.runes.map(r => [r.type, r.q, r.r, r.str, r.cd, r.dir, r.owner])]);
 }
 
 function endTurn(s) {
@@ -170,17 +185,6 @@ function beaconsOpen(s, extra) {
 
 function trigger(s, w) {
   const p = s.p[w], o = s.p[other(w)];
-  const bi = s.runes.findIndex(b => b.type === 'Bomb' && b.shape.some(h => h[0] === p.q && h[1] === p.r));
-  if (bi >= 0) {
-    const b = s.runes[bi];
-    p.frozen = b.str; s.steps = 0;
-    s.runes.splice(bi, 1);
-    let broke = 0;
-    b.shape.forEach(h => { if (s.rocks[key(h[0], h[1])]) { delete s.rocks[key(h[0], h[1])]; broke++; } });
-    flash(s, b.shape);
-    say(s, name(w) + ' sets off a bomb, frozen ' + b.str + (broke ? ', ' + broke + ' boulder' + (broke > 1 ? 's' : '') + ' destroyed' : ''));
-    return;
-  }
   const ru = runeAt(s, p.q, p.r);
   if (!ru || ru.cd > 0) return;
   switch (ru.type) {
@@ -191,13 +195,17 @@ function trigger(s, w) {
     case 'Push': {
       const [dq, dr] = DIRS[ru.dir];
       let n = 0;
+      ru.cd = COOL;      // set first so a loop of pushes cannot fire this one again
+      say(s, name(w) + ' is pushed ' + ru.str);
+      // the pushed player takes the effect of every rune they are shoved onto
       while (n < ru.str) {
         const q = p.q + dq, r = p.r + dr, wl = runeAt(s, q, r);
         if (!cellMap[key(q, r)] || rockAt(s, q, r) || (wl && wl.type === 'Wall') || (o.q === q && o.r === r)) break;
         p.q = q; p.r = r; n++;
+        if (check(s)) break;
+        trigger(s, w);
+        if (check(s) || p.q !== q || p.r !== r) break;     // a teleport or another push carried them off
       }
-      ru.cd = COOL;
-      say(s, name(w) + ' is pushed ' + n);
       break;
     }
     case 'Teleport': {
@@ -208,30 +216,14 @@ function trigger(s, w) {
       say(s, name(w) + ' teleports, +' + ru.str + ' step');
       break;
     }
-    case 'Return': {
-      let q = CENTER.q, r = CENTER.r;
-      if (o.q === q && o.r === r && w === 'R') {
-        const free = cells
-          .filter(h => !isCenter(h.q, h.r) && !playerAt(s, h.q, h.r) && !runeAt(s, h.q, h.r) && !rockAt(s, h.q, h.r))
-          .sort((a, b) => dist(a, CENTER) - dist(b, CENTER))[0];
-        q = free.q; r = free.r;
-      }
-      p.q = q; p.r = r; ru.cd = Math.max(1, COOL + 1 - ru.str);
-      say(s, name(w) + ' returns to center');
-      break;
-    }
-    case 'Grab':
-      o.grab += ru.str; ru.cd = COOL;
-      say(s, name(other(w)) + ' moves 1 less for ' + ru.str + ' turn' + (ru.str > 1 ? 's' : ''));
-      break;
   }
 }
 
 // ---------- actions ----------
 
 function beginMove(s) {
-  if (s.over || s.noMove || s.moving) return false;
-  s.moving = true; s.steps = Math.max(1, 2 - s.slow); s.passes = 0;
+  if (s.over || s.moving || s.setup) return false;
+  s.moving = true; s.steps = 2; s.passes = 0;
   return true;
 }
 
@@ -247,58 +239,40 @@ function step(s, d) {
 
 function stopMove(s) { if (s.moving && !s.over) endTurn(s); }
 
-// normal runes go within 2 of the caster; a grab must be at least 4 away
+// dash and push go within 3 of the caster, the rest within 2. during setup a rune can go
+// anywhere that is more than SETUP_GAP hexes from the other player.
 function placeOk(s, type, q, r) {
   const w = s.turn;
   if (!cellMap[key(q, r)]) return false;
-  const d = dist(s.p[w], { q, r });
-  if (type === 'Grab' ? d < 4 : d > 2) return false;
-  if (beaconIdx(s, q, r) >= 0 || isCenter(q, r) || rockAt(s, q, r) || runeAt(s, q, r) || playerAt(s, q, r)) return false;
-  if (type === 'Bomb' && s.runes.some(x => x.type === 'Bomb' && x.owner === w)) return false;
-  return true;
-}
-
-function shapeOk(shape, q, r) {
-  if (!shape || shape.length !== 6) return false;
-  const seen = {};
-  let hasOrigin = false;
-  for (const h of shape) {
-    if (!cellMap[key(h[0], h[1])] || seen[key(h[0], h[1])]) return false;
-    if (dist({ q: h[0], r: h[1] }, { q, r }) > 2) return false;
-    seen[key(h[0], h[1])] = 1;
-    if (h[0] === q && h[1] === r) hasOrigin = true;
-  }
-  return hasOrigin;
+  if (s.setup) { if (dist(s.p[other(w)], { q, r }) <= SETUP_GAP) return false; }
+  else if (dist(s.p[w], { q, r }) > reach(type)) return false;
+  return !(beaconIdx(s, q, r) >= 0 || isCenter(q, r) || rockAt(s, q, r) || runeAt(s, q, r) || playerAt(s, q, r));
 }
 
 const dirOk = d => Number.isInteger(d) && d >= 0 && d < 6;
 
-// a bomb and anything overlapping it are both destroyed
 function addRune(s, rn) {
   rn.id = s.nid++; rn.cd = 0; rn.lv = 0; rn.str = baseStr(rn.type);
-  if (rn.type === 'Bomb') {
-    const hit = s.runes.filter(x => rn.shape.some(h => h[0] === x.q && h[1] === x.r));
-    if (hit.length) {
-      s.runes = s.runes.filter(x => !hit.includes(x));
-      flash(s, rn.shape);
-      say(s, 'bomb overlaps a rune: both destroyed');
-      return false;
-    }
-  }
-  const b = s.runes.find(x => x.type === 'Bomb' && x.shape.some(h => h[0] === rn.q && h[1] === rn.r));
-  if (b) {
-    s.runes.splice(s.runes.indexOf(b), 1);
-    flash(s, b.shape);
-    say(s, 'rune placed in a bomb zone: both destroyed');
-    return false;
-  }
   s.runes.push(rn);
   return true;
 }
 
+// a placement ends the turn, or in setup hands the next placement to whoever still has runes left
+function finishPlace(s) {
+  s.passes = 0;
+  if (!s.setup) { endTurn(s); return; }
+  const w = s.turn, o = other(w);
+  s.setup[w]--;
+  if (s.setup[o] > 0) s.turn = o;
+  else if (s.setup[w] <= 0) {
+    s.setup = null; s.turn = 'R'; s.n = 0; startTurn(s);
+    if (!s.sim) s.hist[hash(s)] = 1;
+  }
+}
+
 // one wall action puts down 1-3 walls
 function wallsOk(s, hexes) {
-  if (!hexes || hexes.length < 1 || hexes.length > 3) return false;
+  if (!hexes || hexes.length < 1 || hexes.length > (s.setup ? 1 : 3)) return false;
   const seen = {};
   for (const h of hexes) {
     const k = key(h[0], h[1]);
@@ -312,14 +286,14 @@ function placeWalls(s, hexes) {
   if (s.over || s.moving || !wallsOk(s, hexes)) return false;
   const w = s.turn;
   say(s, name(w) + ' places ' + hexes.length + ' wall' + (hexes.length > 1 ? 's' : ''));
-  hexes.forEach(h => addRune(s, { type: 'Wall', q: h[0], r: h[1], owner: w, dir: 0, shape: null }));
-  s.passes = 0; endTurn(s);
+  hexes.forEach(h => addRune(s, { type: 'Wall', q: h[0], r: h[1], owner: w, dir: 0 }));
+  finishPlace(s);
   return true;
 }
 
 // one push action puts down 1-2 pushes, each with its own direction: [{ q, r, dir }]
 function pushesOk(s, list) {
-  if (!Array.isArray(list) || list.length < 1 || list.length > 2) return false;
+  if (!Array.isArray(list) || list.length < 1 || list.length > (s.setup ? 1 : 2)) return false;
   const seen = {};
   for (const h of list) {
     if (!h || !dirOk(h.dir)) return false;
@@ -334,28 +308,27 @@ function placePushes(s, list) {
   if (s.over || s.moving || !pushesOk(s, list)) return false;
   const w = s.turn;
   say(s, name(w) + ' places ' + list.length + ' push' + (list.length > 1 ? 'es' : ''));
-  list.forEach(h => addRune(s, { type: 'Push', q: h.q, r: h.r, owner: w, dir: h.dir, shape: null }));
-  s.passes = 0; endTurn(s);
+  list.forEach(h => addRune(s, { type: 'Push', q: h.q, r: h.r, owner: w, dir: h.dir }));
+  finishPlace(s);
   return true;
 }
 
-// opt: { shape } for a bomb, { dir } for a single push
+// opt: { dir } for a single push
 function place(s, type, q, r, opt) {
   opt = opt || {};
   if (type === 'Wall') return placeWalls(s, [[q, r]]);
   if (type === 'Push') return placePushes(s, [{ q, r, dir: opt.dir }]);
   if (s.over || s.moving || !placeOk(s, type, q, r)) return false;
-  if (type === 'Bomb' && !shapeOk(opt.shape, q, r)) return false;
   const w = s.turn;
   say(s, name(w) + ' places ' + type);
-  addRune(s, { type, q, r, owner: w, dir: 0, shape: type === 'Bomb' ? opt.shape.map(h => h.slice()) : null });
-  s.passes = 0; endTurn(s);
+  addRune(s, { type, q, r, owner: w, dir: 0 });
+  finishPlace(s);
   return true;
 }
 
 // an upgrade adds 1 strength (dash and push: 2). three upgrades at most.
 function bump(s, id) {
-  if (s.over || s.moving) return false;
+  if (s.over || s.moving || s.setup) return false;
   const rn = s.runes.find(x => x.id === id);
   if (!rn || dist(s.p[s.turn], rn) > 2 || rn.lv >= MAXLV) return false;
   rn.lv++; rn.str += stepStr(rn.type);
@@ -366,7 +339,7 @@ function bump(s, id) {
 
 // remove any rune within 1 of you (a wall loses 1 durability instead)
 function removeRune(s, id) {
-  if (s.over || s.moving) return false;
+  if (s.over || s.moving || s.setup) return false;
   const rn = s.runes.find(x => x.id === id);
   if (!rn || dist(s.p[s.turn], rn) > 1) return false;
   if (rn.type === 'Wall' && rn.str > 1) rn.str--;
@@ -391,8 +364,8 @@ function avail(s) {
   const w = s.turn, p = s.p[w];
   const near = (n, f) => s.runes.some(r => dist(p, r) <= n && (!f || f(r)));
   return {
-    move: !s.noMove && DIRS.some(d => canEnter(s, w, p.q + d[0], p.r + d[1])),
-    place: placeTargets(s).length > 0 || placeTargets(s, 'Grab').length > 0,
+    move: !s.setup && DIRS.some(d => canEnter(s, w, p.q + d[0], p.r + d[1])),
+    place: placeTargets(s, 'Dash').length > 0 || placeTargets(s, 'Wall').length > 0,
     str: near(2, r => r.lv < MAXLV),
     remove: near(1),
   };
@@ -425,7 +398,7 @@ function nearestBeacon(s, dR) {
 }
 
 // numbers describing a position from `who`'s point of view; this is what the learned model sees
-const NFEAT = 30;
+const NFEAT = 23 + TYPES.length;
 function features(s, who, dC, dR) {
   const R = s.p.R, C = s.p.C;
   dC = dC || bfs(s, C); dR = dR || bfs(s, R);
@@ -436,7 +409,7 @@ function features(s, who, dC, dR) {
   const f = [who === 'R' ? 1 : -1, s.turn === who ? 1 : -1, R.v.filter(Boolean).length / 4, gap / 40, dist(C, R) / 40];
   for (let i = 0; i < 4; i++) f.push(unlit[i] ? unlit[i].r / 40 : 0);
   for (let i = 0; i < 4; i++) f.push(unlit[i] ? unlit[i].c / 40 : 0);
-  f.push(dist(C, CENTER) / 20, dist(R, CENTER) / 20, C.frozen / 3, R.frozen / 3, (C.grab + (s.turn === 'C' ? s.slow : 0)) / 4, (R.grab + (s.turn === 'R' ? s.slow : 0)) / 4);
+  f.push(dist(C, CENTER) / 20, dist(R, CENTER) / 20);
   const cnt = {}; let lvs = 0;
   s.runes.forEach(r => { cnt[r.type] = (cnt[r.type] || 0) + 1; lvs += r.lv; });
   TYPES.forEach(t => f.push(Math.min(4, cnt[t] || 0) / 4));
@@ -450,15 +423,14 @@ function setBrain(b) { BRAIN = b; }
 
 function evalState(s, who) {
   if (s.over) return s.over.w === who ? 1e6 : s.over.w ? -1e6 : 0;
-  const R = s.p.R, C = s.p.C, me = s.p[who];
+  const R = s.p.R, C = s.p.C;
   const dC = bfs(s, C), dR = bfs(s, R);
   const gap = dC[key(R.q, R.r)] === undefined ? 99 : dC[key(R.q, R.r)];
   const seen = R.v.filter(Boolean).length;
-  let sc = -me.frozen * 60 - me.grab * 40;
+  let sc = 0;
   if (who === 'R') {
     sc += seen * 400 - nearestBeacon(s, dR).d * 12 + Math.min(gap, 6) * 10;
-    const reach = s.turn === 'C' ? (s.noMove ? 0 : Math.max(1, 2 - s.slow)) : 2;
-    if (gap <= reach) sc -= 5000; else if (gap <= reach + 1) sc -= 60;
+    if (gap <= 2) sc -= 5000; else if (gap <= 3) sc -= 60;
   } else {
     sc -= gap * 20 + seen * 300;
     const tb = nearestBeacon(s, dR);                       // wait where the runner has to go
@@ -469,23 +441,10 @@ function evalState(s, who) {
   return sc;
 }
 
-// the bot only knows where the other side's bombs are, not their zones
-function fog(s, who) {
-  const c = clone(s);
-  c.runes.forEach(r => { if (r.type === 'Bomb' && r.owner !== who) r.shape = [[r.q, r.r]]; });
-  return c;
-}
-
-function pickShape(s, h) {
-  const pool = cells.filter(c => !(c.q === h.q && c.r === h.r) && dist(c, h) <= 2);
-  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
-  return [[h.q, h.r]].concat(pool.slice(0, 5).map(c => [c.q, c.r]));
-}
-
 // opt.noise: how much random jitter to add to each candidate's score (self-play uses a lot)
 function botPlan(s0, opt) {
   const noise = (opt && opt.noise) || 8;
-  const who = s0.turn, foe = other(who), base = fog(s0, who);
+  const who = s0.turn, foe = other(who), base = clone(s0);
   const R = base.p.R, C = base.p.C;
   const dC = bfs(base, C), dR = bfs(base, R);
   const gap = dC[key(R.q, R.r)];
@@ -514,46 +473,43 @@ function botPlan(s0, opt) {
   })(base, []);
 
   const own = base.runes.filter(r => r.owner === who).length;
-  if (own < 5) {
-    const near = placeTargets(base);
-    for (const h of near) {
+  if (base.setup || own < 5) {
+    // in setup the whole board is open, so only look at a random sample of hexes
+    const sample = list => {
+      if (!base.setup) return list;
+      const a = list.slice();
+      for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+      return a.slice(0, 70);
+    };
+    for (const h of sample(placeTargets(base, 'Push'))) {
       const k = key(h.q, h.r);
-      for (const t of ['Bomb', 'Dash', 'Teleport', 'Return']) {
+      for (const t of ['Dash', 'Teleport']) {
         if (!placeOk(base, t, h.q, h.r)) continue;
-        let b = 0;
-        if (mine(k) && (t === 'Dash' || (t === 'Teleport' && pairs > 0))) b += 28;
-        if (theirs(k) && t === 'Bomb') b += 26;
-        const o = t === 'Bomb' ? { shape: pickShape(base, h) } : {};
+        const b = mine(k) && (t === 'Dash' || (t === 'Teleport' && pairs > 0)) ? 28 : 0;
         const c = clone(base);
-        place(c, t, h.q, h.r, o);
-        add([{ k: 'place', t, q: h.q, r: h.r, opt: o }], c, b);
+        place(c, t, h.q, h.r);
+        add([{ k: 'place', t, q: h.q, r: h.r, opt: {} }], c, b);
       }
-      if (mine(k) && goal) {
+      if (goal) {
         let bd = 0, bs = 1e9;
         DIRS.forEach((v, d) => { const s2 = dist({ q: h.q + v[0], r: h.r + v[1] }, goal); if (s2 < bs) { bs = s2; bd = d; } });
         const list = [{ q: h.q, r: h.r, dir: bd }], c = clone(base);
         placePushes(c, list);
-        add([{ k: 'pushes', list }], c, 22);
+        add([{ k: 'pushes', list }], c, mine(k) ? 22 : 0);
       }
     }
-    const wv = near.filter(h => wallsOk(base, [[h.q, h.r]]));
+    const wv = sample(placeTargets(base, 'Wall')).filter(h => wallsOk(base, [[h.q, h.r]]));
     wv.forEach(h => {
       const c = clone(base);
       placeWalls(c, [[h.q, h.r]]);
       add([{ k: 'walls', hexes: [[h.q, h.r]] }], c, theirs(key(h.q, h.r)) ? 26 : 0);
     });
-    const wt = wv.filter(h => theirs(key(h.q, h.r))).slice(0, 3).map(h => [h.q, h.r]);
+    const wt = base.setup ? [] : wv.filter(h => theirs(key(h.q, h.r))).slice(0, 3).map(h => [h.q, h.r]);
     if (wt.length > 1 && wallsOk(base, wt)) {
       const c = clone(base);
       placeWalls(c, wt);
       add([{ k: 'walls', hexes: wt }], c, 26 + 6 * wt.length);
     }
-    const far = cells.filter(h => mine(key(h.q, h.r)) && placeOk(base, 'Grab', h.q, h.r)).sort(() => Math.random() - .5).slice(0, 6);
-    far.forEach(h => {
-      const c = clone(base);
-      place(c, 'Grab', h.q, h.r);
-      add([{ k: 'place', t: 'Grab', q: h.q, r: h.r, opt: {} }], c, 18);
-    });
   }
   for (const rn of base.runes) {
     if (dist(base.p[who], rn) > 2 || rn.lv >= MAXLV) continue;
@@ -588,8 +544,8 @@ function applyOp(s, op) {
 }
 
 root.Tag = {
-  COLS, ROWS, MAXLV, NFEAT, DIRS, TYPES, CENTER, cells, cellMap,
+  COLS, ROWS, MAXLV, NFEAT, SETUP_RUNES, SETUP_GAP, DIRS, TYPES, CENTER, cells, cellMap,
   key, dist, name, other, newState, beginMove, step, stopMove, place, placeWalls, wallsOk, placePushes, pushesOk, bump, removeRune, pass,
-  avail, placeOk, placeTargets, shapeOk, beaconsOpen, runeAt, rockAt, playerAt, canEnter, botPlan, applyOp, features, bfs, setBrain,
+  avail, placeOk, placeTargets, reach, beaconsOpen, runeAt, rockAt, playerAt, canEnter, botPlan, applyOp, features, bfs, setBrain,
 };
 })(typeof window !== 'undefined' ? window : globalThis);
