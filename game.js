@@ -237,7 +237,11 @@ function step(s, d) {
   return true;
 }
 
-function stopMove(s) { if (s.moving && !s.over) endTurn(s); }
+function stopMove(s) {
+  if (!s.moving || s.over) return false;
+  endTurn(s);
+  return true;
+}
 
 // dash and push go within 3 of the caster, the rest within 2. during setup a rune can go
 // anywhere that is more than SETUP_GAP hexes from the other player.
